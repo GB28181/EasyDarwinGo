@@ -5,13 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
-	"path"
-	"strconv"
-	"strings"
 	"sync"
-	"syscall"
-	"time"
 
 	"github.com/penggy/EasyGoLib/utils"
 )
@@ -54,7 +48,6 @@ func (server *Server) Start() (err error) {
 	localRecord := utils.Conf().Section("rtsp").Key("save_stream_to_local").MustInt(0)
 	ffmpeg := utils.Conf().Section("rtsp").Key("ffmpeg_path").MustString("")
 	m3u8_dir_path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")
-	ts_duration_second := utils.Conf().Section("rtsp").Key("ts_duration_second").MustInt(6)
 	SaveStreamToLocal := false
 	if (len(ffmpeg) > 0) && localRecord > 0 && len(m3u8_dir_path) > 0 {
 		err := utils.EnsureDir(m3u8_dir_path)
@@ -65,82 +58,27 @@ func (server *Server) Start() (err error) {
 		}
 	}
 	go func() { // save to local.
-		pusher2ffmpegMap := make(map[*Pusher]*exec.Cmd)
 		if SaveStreamToLocal {
 			logger.Printf("Prepare to save stream to local....")
 			defer logger.Printf("End save stream to local....")
 		}
-		var pusher *Pusher
+		//var pusher *Pusher
 		addChnOk := true
 		removeChnOk := true
 		for addChnOk || removeChnOk {
 			select {
-			case pusher, addChnOk = <-server.addPusherCh:
-				if SaveStreamToLocal {
-					if addChnOk {
-						dir := path.Join(m3u8_dir_path, pusher.Path(), time.Now().Format("20060102"))
-						err := utils.EnsureDir(dir)
-						if err != nil {
-							logger.Printf("EnsureDir:[%s] err:%v.", dir, err)
-							continue
-						}
-						m3u8path := path.Join(dir, fmt.Sprintf("out.m3u8"))
-						port := pusher.Server().TCPPort
-						rtsp := fmt.Sprintf("rtsp://localhost:%d%s", port, pusher.Path())
-						paramStr := utils.Conf().Section("rtsp").Key(pusher.Path()).MustString("-c:v copy -c:a copy")
-						params := []string{"-fflags", "genpts", "-rtsp_transport", "tcp", "-i", rtsp, "-hls_time", strconv.Itoa(ts_duration_second), "-hls_list_size", "0", m3u8path}
-						if paramStr != "default" {
-							paramsOfThisPath := strings.Split(paramStr, " ")
-							params = append(params[:6], append(paramsOfThisPath, params[6:]...)...)
-						}
-						// ffmpeg -i ~/Downloads/720p.mp4 -s 640x360 -g 15 -c:a aac -hls_time 5 -hls_list_size 0 record.m3u8
-						cmd := exec.Command(ffmpeg, params...)
-						f, err := os.OpenFile(path.Join(dir, fmt.Sprintf("log.txt")), os.O_RDWR|os.O_CREATE, 0755)
-						if err == nil {
-							cmd.Stdout = f
-							cmd.Stderr = f
-						}
-						err = cmd.Start()
-						if err != nil {
-							logger.Printf("Start ffmpeg err:%v", err)
-						}
-						pusher2ffmpegMap[pusher] = cmd
-						logger.Printf("add ffmpeg [%v] to pull stream from pusher[%v]", cmd, pusher)
-					} else {
-						logger.Printf("addPusherChan closed")
-					}
+			case _, addChnOk = <-server.addPusherCh:
+				if addChnOk {
+					logger.Printf("addPusherChan %s")
+				} else {
+					logger.Printf("addPusherChan closed")
 				}
-			case pusher, removeChnOk = <-server.removePusherCh:
-				if SaveStreamToLocal {
-					if removeChnOk {
-						cmd := pusher2ffmpegMap[pusher]
-						proc := cmd.Process
-						if proc != nil {
-							logger.Printf("prepare to SIGTERM to process:%v", proc)
-							proc.Signal(syscall.SIGTERM)
-							proc.Wait()
-							// proc.Kill()
-							// no need to close attached log file.
-							// see "Wait releases any resources associated with the Cmd."
-							// if closer, ok := cmd.Stdout.(io.Closer); ok {
-							// 	closer.Close()
-							// 	logger.Printf("process:%v Stdout closed.", proc)
-							// }
-							logger.Printf("process:%v terminate.", proc)
-						}
-						delete(pusher2ffmpegMap, pusher)
-						logger.Printf("delete ffmpeg from pull stream from pusher[%v]", pusher)
-					} else {
-						for _, cmd := range pusher2ffmpegMap {
-							proc := cmd.Process
-							if proc != nil {
-								logger.Printf("prepare to SIGTERM to process:%v", proc)
-								proc.Signal(syscall.SIGTERM)
-							}
-						}
-						pusher2ffmpegMap = make(map[*Pusher]*exec.Cmd)
-						logger.Printf("removePusherChan closed")
-					}
+
+			case _, removeChnOk = <-server.removePusherCh:
+				if removeChnOk {
+					logger.Printf("removePusherCh called")
+				} else {
+					logger.Printf("addPusherChan closed")
 				}
 			}
 		}

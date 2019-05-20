@@ -394,7 +394,7 @@ func (session *Session) handleRequest(req *Request) {
 		if p := recover(); p != nil {
 			logger.Printf("handleRequest err ocurs:%v", p)
 			res.StatusCode = 500
-			res.Status = fmt.Sprintf("Inner Server Error, %v", p)
+			res.Status = fmt.Sprintf("Internal Server Error")
 		}
 		logger.Printf(">>>\n%s", res)
 		outBytes := []byte(res.String())
