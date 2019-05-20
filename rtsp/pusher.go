@@ -1,6 +1,7 @@
 package rtsp
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -83,17 +84,19 @@ func (pusher *Pusher) VCodec() string {
 	return pusher.RTSPClient.VCodec
 }
 
-func (pusher *Pusher) ACodec() string {
+func (pusher *Pusher) ACodec() []string {
 	if pusher.Session != nil {
 		return pusher.Session.ACodec
 	}
 	return pusher.RTSPClient.ACodec
 }
 
-func (pusher *Pusher) AControl() string {
+func (pusher *Pusher) AControl() []string {
 	if pusher.Session != nil {
+		fmt.Printf("AControl return:%v", pusher.Session.AControl)
 		return pusher.Session.AControl
 	}
+	fmt.Printf("AControl return:%v", pusher.RTSPClient.AControl)
 	return pusher.RTSPClient.AControl
 }
 

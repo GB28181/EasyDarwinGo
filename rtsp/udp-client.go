@@ -11,10 +11,10 @@ import (
 type UDPClient struct {
 	*Session
 
-	APort        int
-	AConn        *net.UDPConn
-	AControlPort int
-	AControlConn *net.UDPConn
+	APort        []int
+	AConn        []*net.UDPConn
+	AControlPort []int
+	AControlConn []*net.UDPConn
 	VPort        int
 	VConn        *net.UDPConn
 	VControlPort int
@@ -28,13 +28,17 @@ func (s *UDPClient) Stop() {
 		return
 	}
 	s.Stoped = true
-	if s.AConn != nil {
-		s.AConn.Close()
-		s.AConn = nil
+	for i := range s.AConn {
+		if nil != s.AConn[i] {
+			s.AConn[i].Close()
+			s.AConn[i] = nil
+		}
 	}
-	if s.AControlConn != nil {
-		s.AControlConn.Close()
-		s.AControlConn = nil
+	for i := range s.AControlConn {
+		if s.AControlConn[i] != nil {
+			s.AControlConn[i].Close()
+			s.AControlConn[i] = nil
+		}
 	}
 	if s.VConn != nil {
 		s.VConn.Close()
@@ -46,7 +50,7 @@ func (s *UDPClient) Stop() {
 	}
 }
 
-func (c *UDPClient) SetupAudio() (err error) {
+func (c *UDPClient) SetupAudio(aChannel int) (err error) {
 	logger := c.logger
 	defer func() {
 		if err != nil {
@@ -56,34 +60,34 @@ func (c *UDPClient) SetupAudio() (err error) {
 	}()
 	host := c.Conn.RemoteAddr().String()
 	host = host[:strings.LastIndex(host, ":")]
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.APort))
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.APort[aChannel]))
 	if err != nil {
 		return
 	}
-	c.AConn, err = net.DialUDP("udp", nil, addr)
+	c.AConn[aChannel], err = net.DialUDP("udp", nil, addr)
 	if err != nil {
 		return
 	}
 	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
-	if err := c.AConn.SetReadBuffer(networkBuffer); err != nil {
+	if err := c.AConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
 		logger.Printf("udp client audio conn set read buffer error, %v", err)
 	}
-	if err := c.AConn.SetWriteBuffer(networkBuffer); err != nil {
+	if err := c.AConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
 		logger.Printf("udp client audio conn set write buffer error, %v", err)
 	}
 
-	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.AControlPort))
+	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.AControlPort[aChannel]))
 	if err != nil {
 		return
 	}
-	c.AControlConn, err = net.DialUDP("udp", nil, addr)
+	c.AControlConn[aChannel], err = net.DialUDP("udp", nil, addr)
 	if err != nil {
 		return
 	}
-	if err := c.AControlConn.SetReadBuffer(networkBuffer); err != nil {
+	if err := c.AControlConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
 		logger.Printf("udp client audio control conn set read buffer error, %v", err)
 	}
-	if err := c.AControlConn.SetWriteBuffer(networkBuffer); err != nil {
+	if err := c.AControlConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
 		logger.Printf("udp client audio control conn set write buffer error, %v", err)
 	}
 	return
@@ -140,9 +144,9 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 	var conn *net.UDPConn
 	switch pack.Type {
 	case RTP_TYPE_AUDIO:
-		conn = c.AConn
+		conn = c.AConn[pack.Channel]
 	case RTP_TYPE_AUDIOCONTROL:
-		conn = c.AControlConn
+		conn = c.AControlConn[pack.Channel]
 	case RTP_TYPE_VIDEO:
 		conn = c.VConn
 	case RTP_TYPE_VIDEOCONTROL:

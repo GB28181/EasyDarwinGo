@@ -20,13 +20,15 @@ import (
 	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/penggy/EasyGoLib/db"
 	"github.com/penggy/EasyGoLib/utils"
+	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/teris-io/shortid"
 )
 
 type RTPPack struct {
-	Type   RTPType
-	Buffer *bytes.Buffer
+	Type    RTPType
+	Buffer  *bytes.Buffer
+	Channel int // Mostly audio channel index, can be video channel index
 }
 
 type SessionType int
@@ -100,15 +102,15 @@ type Session struct {
 	Path      string
 	URL       string
 	SDPRaw    string
-	SDPMap    map[string]*SDPInfo
+	Sdp       *sdp.Session
 
 	authorizationEnable bool
 	nonce               string
 	closeOld            bool
 
-	AControl string
+	AControl []string
 	VControl string
-	ACodec   string
+	ACodec   []string
 	VCodec   string
 
 	// stats info
@@ -120,10 +122,13 @@ type Session struct {
 	Stoped bool
 
 	//tcp channels
-	aRTPChannel        int
-	aRTPControlChannel int
+	aRTPChannel        []int
+	aRTPControlChannel []int
 	vRTPChannel        int
 	vRTPControlChannel int
+
+	// audio double channel
+	aChannelNum int
 
 	Pusher      *Pusher
 	Player      *Player
@@ -154,8 +159,8 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		StopHandles:         make([]func(), 0),
 		vRTPChannel:         -1,
 		vRTPControlChannel:  -1,
-		aRTPChannel:         -1,
-		aRTPControlChannel:  -1,
+		aRTPChannel:         []int{-1, -1},
+		aRTPControlChannel:  []int{-1, -1},
 		closeOld:            close_old != 0,
 	}
 
@@ -215,20 +220,39 @@ func (session *Session) Start() {
 			rtpBuf := bytes.NewBuffer(rtpBytes)
 			var pack *RTPPack
 			switch channel {
-			case session.aRTPChannel:
+			case session.aRTPChannel[0]:
 				pack = &RTPPack{
-					Type:   RTP_TYPE_AUDIO,
-					Buffer: rtpBuf,
+					Type:    RTP_TYPE_AUDIO,
+					Buffer:  rtpBuf,
+					Channel: 0,
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
 					logger.Println("Recv an audio RTP package")
 					timer = time.Now()
 				}
-			case session.aRTPControlChannel:
+			case session.aRTPChannel[1]:
 				pack = &RTPPack{
-					Type:   RTP_TYPE_AUDIOCONTROL,
-					Buffer: rtpBuf,
+					Type:    RTP_TYPE_AUDIO,
+					Buffer:  rtpBuf,
+					Channel: 1,
+				}
+				elapsed := time.Now().Sub(timer)
+				if elapsed >= 30*time.Second {
+					logger.Println("Recv an audio RTP package")
+					timer = time.Now()
+				}
+			case session.aRTPControlChannel[0]:
+				pack = &RTPPack{
+					Type:    RTP_TYPE_AUDIOCONTROL,
+					Buffer:  rtpBuf,
+					Channel: 0,
+				}
+			case session.aRTPControlChannel[1]:
+				pack = &RTPPack{
+					Type:    RTP_TYPE_AUDIOCONTROL,
+					Buffer:  rtpBuf,
+					Channel: 1,
 				}
 			case session.vRTPChannel:
 				pack = &RTPPack{
@@ -368,7 +392,7 @@ func (session *Session) handleRequest(req *Request) {
 	res := NewResponse(200, "OK", req.Header["CSeq"], session.ID, "")
 	defer func() {
 		if p := recover(); p != nil {
-			logger.Printf("handleRequest err ocurs:%v",p)
+			logger.Printf("handleRequest err ocurs:%v", p)
 			res.StatusCode = 500
 			res.Status = fmt.Sprintf("Inner Server Error, %v", p)
 		}
@@ -436,19 +460,26 @@ func (session *Session) handleRequest(req *Request) {
 		session.Path = url.Path
 
 		session.SDPRaw = req.Body
-		session.SDPMap = ParseSDP(req.Body)
-		sdp, ok := session.SDPMap["audio"]
-		if ok {
-			session.AControl = sdp.Control
-			session.ACodec = sdp.Codec
-			logger.Printf("audio codec[%s]\n", session.ACodec)
+		session.Sdp, err = sdp.ParseString(req.Body)
+		if err != nil {
+			res.StatusCode = 400
+			res.Status = "Bad Request"
 		}
-		sdp, ok = session.SDPMap["video"]
-		if ok {
-			session.VControl = sdp.Control
-			session.VCodec = sdp.Codec
-			logger.Printf("video codec[%s]\n", session.VCodec)
+
+		for _, media := range session.Sdp.Media {
+			switch media.Type {
+			case "video":
+				session.VControl = media.Attributes.Get("control")
+				session.VCodec = media.Formats[0].Name
+				logger.Printf("video codec[%s]\n", session.VCodec)
+			case "audio":
+				session.AControl[session.aChannelNum] = media.Attributes.Get("control")
+				session.ACodec[session.aChannelNum] = media.Formats[0].Name
+				logger.Printf("audio codec[%s]\n", session.ACodec[session.aChannelNum])
+				session.aChannelNum++
+			}
 		}
+
 		session.Pusher = NewPusher(session)
 
 		addedToServer := session.Server.AddPusher(session.Pusher, session.closeOld)
@@ -525,20 +556,22 @@ func (session *Session) handleRequest(req *Request) {
 			vPath = session.VControl
 		}
 
-		aPath := ""
-		if strings.Index(strings.ToLower(session.AControl), "rtsp://") == 0 {
-			aControlUrl, err := url.Parse(session.AControl)
-			if err != nil {
-				res.StatusCode = 500
-				res.Status = "Invalid AControl"
-				return
+		aPathes := []string{}
+		for _, AControl := range session.AControl {
+			if strings.Index(strings.ToLower(AControl), "rtsp://") == 0 {
+				aControlURL, err := url.Parse(AControl)
+				if err != nil {
+					res.StatusCode = 500
+					res.Status = "Invalid AControl"
+					return
+				}
+				if aControlURL.Port() == "" {
+					aControlURL.Host = fmt.Sprintf("%s:554", aControlURL.Host)
+				}
+				aPathes = append(aPathes, aControlURL.String())
+			} else {
+				aPathes = append(aPathes, AControl)
 			}
-			if aControlUrl.Port() == "" {
-				aControlUrl.Host = fmt.Sprintf("%s:554", aControlUrl.Host)
-			}
-			aPath = aControlUrl.String()
-		} else {
-			aPath = session.AControl
 		}
 
 		mtcp := regexp.MustCompile("interleaved=(\\d+)(-(\\d+))?")
@@ -546,9 +579,19 @@ func (session *Session) handleRequest(req *Request) {
 
 		if tcpMatchs := mtcp.FindStringSubmatch(ts); tcpMatchs != nil {
 			session.TransType = TRANS_TYPE_TCP
-			if setupPath == aPath || aPath != "" && strings.LastIndex(setupPath, aPath) == len(setupPath)-len(aPath) {
-				session.aRTPChannel, _ = strconv.Atoi(tcpMatchs[1])
-				session.aRTPControlChannel, _ = strconv.Atoi(tcpMatchs[3])
+
+			matchAudio := false
+			for _, aPath := range aPathes {
+				if setupPath == aPath || aPath != "" && strings.LastIndex(setupPath, aPath) == len(setupPath)-len(aPath) {
+					session.aRTPChannel[session.aChannelNum], _ = strconv.Atoi(tcpMatchs[1])
+					session.aRTPControlChannel[session.aChannelNum], _ = strconv.Atoi(tcpMatchs[3])
+					session.aChannelNum++
+
+					matchAudio = true
+					break
+				}
+			}
+			if matchAudio {
 			} else if setupPath == vPath || vPath != "" && strings.LastIndex(setupPath, vPath) == len(setupPath)-len(vPath) {
 				session.vRTPChannel, _ = strconv.Atoi(tcpMatchs[1])
 				session.vRTPControlChannel, _ = strconv.Atoi(tcpMatchs[3])
@@ -557,50 +600,67 @@ func (session *Session) handleRequest(req *Request) {
 				res.Status = fmt.Sprintf("SETUP [TCP] got UnKown control:%s", setupPath)
 				logger.Printf("SETUP [TCP] got UnKown control:%s", setupPath)
 			}
-			logger.Printf("Parse SETUP req.TRANSPORT:TCP.Session.Type:%d,control:%s, AControl:%s,VControl:%s", session.Type, setupPath, aPath, vPath)
+			logger.Printf("Parse SETUP req.TRANSPORT:TCP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
+				session.Type, setupPath, aPathes, vPath)
 		} else if udpMatchs := mudp.FindStringSubmatch(ts); udpMatchs != nil {
 			session.TransType = TRANS_TYPE_UDP
 			// no need for tcp timeout.
 			session.Conn.timeout = 0
 			if session.Type == SESSEION_TYPE_PLAYER && session.UDPClient == nil {
 				session.UDPClient = &UDPClient{
-					Session: session,
+					Session:      session,
+					APort:        []int{-1, -1},
+					AConn:        []*net.UDPConn{nil, nil},
+					AControlPort: []int{-1, -1},
+					AControlConn: []*net.UDPConn{nil, nil},
 				}
 			}
 			if session.Type == SESSION_TYPE_PUSHER && session.Pusher.UDPServer == nil {
-				session.Pusher.UDPServer = &UDPServer{
-					Session: session,
+				session.Pusher.UDPServer = NewUDPServerFromSession(session)
+			}
+
+			logger.Printf("Parse SETUP req.TRANSPORT:UDP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
+				session.Type, setupPath, aPathes, vPath)
+			matchAudio := false
+			for _, aPath := range aPathes {
+				if setupPath == aPath || aPath != "" && strings.LastIndex(setupPath, aPath) == len(setupPath)-len(aPath) {
+					if session.Type == SESSEION_TYPE_PLAYER {
+						session.UDPClient.APort[session.aChannelNum], _ = strconv.Atoi(udpMatchs[1])
+						session.UDPClient.AControlPort[session.aChannelNum], _ = strconv.Atoi(udpMatchs[3])
+						if err := session.UDPClient.SetupAudio(session.aChannelNum); err != nil {
+							res.StatusCode = 500
+							res.Status = fmt.Sprintf("udp client setup audio error, %v", err)
+							return
+						}
+						session.aChannelNum++
+					} else if session.Type == SESSION_TYPE_PUSHER {
+						if err := session.Pusher.UDPServer.SetupAudio(session.aChannelNum); err != nil {
+							res.StatusCode = 500
+							res.Status = fmt.Sprintf("udp server setup audio error, %v", err)
+							return
+						}
+						session.aChannelNum++
+						tss := strings.Split(ts, ";")
+						idx := -1
+						for i, val := range tss {
+							if val == udpMatchs[0] {
+								idx = i
+							}
+						}
+						tail := append([]string{}, tss[idx+1:]...)
+						tss = append(tss[:idx+1], fmt.Sprintf("server_port=%d-%d", session.Pusher.UDPServer.APort, session.Pusher.UDPServer.AControlPort))
+						tss = append(tss, tail...)
+						ts = strings.Join(tss, ";")
+					} else {
+						logger.Printf("Unknow session type:%d", session.Type)
+						res.StatusCode = 400
+						res.Status = "Bad Request"
+						return
+					}
 				}
 			}
-			logger.Printf("Parse SETUP req.TRANSPORT:UDP.Session.Type:%d,control:%s, AControl:%s,VControl:%s", session.Type, setupPath, aPath, vPath)
-			if setupPath == aPath || aPath != "" && strings.LastIndex(setupPath, aPath) == len(setupPath)-len(aPath) {
-				if session.Type == SESSEION_TYPE_PLAYER {
-					session.UDPClient.APort, _ = strconv.Atoi(udpMatchs[1])
-					session.UDPClient.AControlPort, _ = strconv.Atoi(udpMatchs[3])
-					if err := session.UDPClient.SetupAudio(); err != nil {
-						res.StatusCode = 500
-						res.Status = fmt.Sprintf("udp client setup audio error, %v", err)
-						return
-					}
-				}
-				if session.Type == SESSION_TYPE_PUSHER {
-					if err := session.Pusher.UDPServer.SetupAudio(); err != nil {
-						res.StatusCode = 500
-						res.Status = fmt.Sprintf("udp server setup audio error, %v", err)
-						return
-					}
-					tss := strings.Split(ts, ";")
-					idx := -1
-					for i, val := range tss {
-						if val == udpMatchs[0] {
-							idx = i
-						}
-					}
-					tail := append([]string{}, tss[idx+1:]...)
-					tss = append(tss[:idx+1], fmt.Sprintf("server_port=%d-%d", session.Pusher.UDPServer.APort, session.Pusher.UDPServer.AControlPort))
-					tss = append(tss, tail...)
-					ts = strings.Join(tss, ";")
-				}
+			if matchAudio {
+
 			} else if setupPath == vPath || vPath != "" && strings.LastIndex(setupPath, vPath) == len(setupPath)-len(vPath) {
 				if session.Type == SESSEION_TYPE_PLAYER {
 					session.UDPClient.VPort, _ = strconv.Atoi(udpMatchs[1])
@@ -670,7 +730,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 	case RTP_TYPE_AUDIO:
 		bufChannel := make([]byte, 2)
 		bufChannel[0] = 0x24
-		bufChannel[1] = byte(session.aRTPChannel)
+		bufChannel[1] = byte(session.aRTPChannel[pack.Channel])
 		session.connWLock.Lock()
 		session.connRW.Write(bufChannel)
 		bufLen := make([]byte, 2)
@@ -683,7 +743,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 	case RTP_TYPE_AUDIOCONTROL:
 		bufChannel := make([]byte, 2)
 		bufChannel[0] = 0x24
-		bufChannel[1] = byte(session.aRTPControlChannel)
+		bufChannel[1] = byte(session.aRTPControlChannel[pack.Channel])
 		session.connWLock.Lock()
 		session.connRW.Write(bufChannel)
 		bufLen := make([]byte, 2)

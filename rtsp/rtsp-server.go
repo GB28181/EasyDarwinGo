@@ -87,7 +87,7 @@ func (server *Server) Start() (err error) {
 						m3u8path := path.Join(dir, fmt.Sprintf("out.m3u8"))
 						port := pusher.Server().TCPPort
 						rtsp := fmt.Sprintf("rtsp://localhost:%d%s", port, pusher.Path())
-						paramStr := utils.Conf().Section("rtsp").Key(pusher.Path()).MustString("-c:v copy -c:a aac")
+						paramStr := utils.Conf().Section("rtsp").Key(pusher.Path()).MustString("-c:v copy -c:a copy")
 						params := []string{"-fflags", "genpts", "-rtsp_transport", "tcp", "-i", rtsp, "-hls_time", strconv.Itoa(ts_duration_second), "-hls_list_size", "0", m3u8path}
 						if paramStr != "default" {
 							paramsOfThisPath := strings.Split(paramStr, " ")

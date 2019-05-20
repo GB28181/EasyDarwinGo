@@ -41,9 +41,9 @@ type RTSPClient struct {
 	TransType            TransType
 	StartAt              time.Time
 	Sdp                  *sdp.Session
-	AControl             string
+	AControl             []string
 	VControl             string
-	ACodec               string
+	ACodec               []string
 	VCodec               string
 	OptionIntervalMillis int64
 	SDPRaw               string
@@ -52,10 +52,13 @@ type RTSPClient struct {
 	authLine string
 
 	//tcp channels
-	aRTPChannel        int
-	aRTPControlChannel int
+	aRTPChannel        []int
+	aRTPControlChannel []int
 	vRTPChannel        int
 	vRTPControlChannel int
+
+	// audio double channel
+	aChannelNum int
 
 	UDPServer   *UDPServer
 	RTPHandles  []func(*RTPPack)
@@ -80,8 +83,10 @@ func NewRTSPClient(server *Server, rawUrl string, sendOptionMillis int64, agent 
 		TransType:            TRANS_TYPE_TCP,
 		vRTPChannel:          0,
 		vRTPControlChannel:   1,
-		aRTPChannel:          2,
-		aRTPControlChannel:   3,
+		AControl:             []string{"not set up audio 01", "not set up audio 02"},
+		ACodec:               []string{"invalid codec", "invalid codec"},
+		aRTPChannel:          []int{2, 4},
+		aRTPControlChannel:   []int{3, 5},
 		OptionIntervalMillis: sendOptionMillis,
 		StartAt:              time.Now(),
 		Agent:                agent,
@@ -274,7 +279,7 @@ func (client *RTSPClient) requestStream(timeout time.Duration) (err error) {
 				headers["Transport"] = fmt.Sprintf("RTP/AVP/TCP;unicast;interleaved=%d-%d", client.vRTPChannel, client.vRTPControlChannel)
 			} else {
 				if client.UDPServer == nil {
-					client.UDPServer = &UDPServer{RTSPClient: client}
+					client.UDPServer = NewUDPServerFromClient(client)
 				}
 				//RTP/AVP;unicast;client_port=64864-64865
 				err = client.UDPServer.SetupVideo()
@@ -295,22 +300,32 @@ func (client *RTSPClient) requestStream(timeout time.Duration) (err error) {
 			}
 			session, _ = resp.Header["Session"].(string)
 		case "audio":
-			client.AControl = media.Attributes.Get("control")
-			client.ACodec = media.Formats[0].Name
+			if client.aChannelNum >= 2 {
+				client.logger.Printf("More than 2 channel, please look into it")
+				continue
+			}
+			client.logger.Printf("Setup audio channel:%d", client.aChannelNum)
+			client.AControl[client.aChannelNum] = media.Attributes.Get("control")
+			client.ACodec[client.aChannelNum] = media.Formats[0].Name
+			AControl := client.AControl[client.aChannelNum]
+			// ACodec := client.ACodec[client.aChannelNum]
 			var _url = ""
-			if strings.Index(strings.ToLower(client.AControl), "rtsp://") == 0 {
-				_url = client.AControl
+			if strings.Index(strings.ToLower(AControl), "rtsp://") == 0 {
+				_url = AControl
 			} else {
-				_url = strings.TrimRight(client.URL, "/") + "/" + strings.TrimLeft(client.AControl, "/")
+				_url = strings.TrimRight(client.URL, "/") + "/" + strings.TrimLeft(AControl, "/")
 			}
 			headers = make(map[string]string)
 			if client.TransType == TRANS_TYPE_TCP {
-				headers["Transport"] = fmt.Sprintf("RTP/AVP/TCP;unicast;interleaved=%d-%d", client.aRTPChannel, client.aRTPControlChannel)
+				headers["Transport"] = fmt.Sprintf(
+					"RTP/AVP/TCP;unicast;interleaved=%d-%d",
+					client.aRTPChannel[client.aChannelNum],
+					client.aRTPControlChannel[client.aChannelNum])
 			} else {
 				if client.UDPServer == nil {
-					client.UDPServer = &UDPServer{RTSPClient: client}
+					client.UDPServer = NewUDPServerFromClient(client)
 				}
-				err = client.UDPServer.SetupAudio()
+				err = client.UDPServer.SetupAudio(client.aChannelNum)
 				if err != nil {
 					client.logger.Printf("Setup audio err.%v", err)
 					return err
@@ -327,6 +342,8 @@ func (client *RTSPClient) requestStream(timeout time.Duration) (err error) {
 				return err
 			}
 			session, _ = resp.Header["Session"].(string)
+			// Setup success
+			client.aChannelNum++
 		}
 	}
 	headers = make(map[string]string)
@@ -389,15 +406,29 @@ func (client *RTSPClient) startStream() {
 			rtpBuf := bytes.NewBuffer(content)
 			var pack *RTPPack
 			switch channel {
-			case client.aRTPChannel:
+			case client.aRTPChannel[0]:
 				pack = &RTPPack{
-					Type:   RTP_TYPE_AUDIO,
-					Buffer: rtpBuf,
+					Type:    RTP_TYPE_AUDIO,
+					Buffer:  rtpBuf,
+					Channel: 0,
 				}
-			case client.aRTPControlChannel:
+			case client.aRTPChannel[1]:
 				pack = &RTPPack{
-					Type:   RTP_TYPE_AUDIOCONTROL,
-					Buffer: rtpBuf,
+					Type:    RTP_TYPE_AUDIO,
+					Buffer:  rtpBuf,
+					Channel: 1,
+				}
+			case client.aRTPControlChannel[0]:
+				pack = &RTPPack{
+					Type:    RTP_TYPE_AUDIOCONTROL,
+					Buffer:  rtpBuf,
+					Channel: 0,
+				}
+			case client.aRTPControlChannel[1]:
+				pack = &RTPPack{
+					Type:    RTP_TYPE_AUDIOCONTROL,
+					Buffer:  rtpBuf,
+					Channel: 1,
 				}
 			case client.vRTPChannel:
 				pack = &RTPPack{
@@ -501,7 +532,7 @@ func (client *RTSPClient) Stop() {
 		client.Conn.Close()
 		client.Conn = nil
 	}
-	if client.UDPServer != nil{
+	if client.UDPServer != nil {
 		client.UDPServer.Stop()
 		client.UDPServer = nil
 	}
