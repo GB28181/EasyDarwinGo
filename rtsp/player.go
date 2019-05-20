@@ -6,14 +6,30 @@ import (
 	"github.com/penggy/EasyGoLib/utils"
 )
 
-type Player struct {
+// Player wrapper of Media data receiver
+type Player interface {
+	// usage
+	QueueRTP(pack *RTPPack) Player
+	Start()
+	Stop()
+	// status
+	ID() string
+	Path() string
+	TransType() TransType
+	InBytes() int
+	OutBytes() int
+	StartAt() time.Time
+}
+
+type _Player struct {
 	*Session
 	Pusher *Pusher
 	queue  chan *RTPPack
 }
 
-func NewPlayer(session *Session, pusher *Pusher) (player *Player) {
-	player = &Player{
+// NewPlayer of network session
+func NewPlayer(session *Session, pusher *Pusher) Player {
+	player := &_Player{
 		Session: session,
 		Pusher:  pusher,
 		queue:   make(chan *RTPPack, utils.Conf().Section("rtp").Key("send_queue_length").MustInt(128)),
@@ -22,10 +38,34 @@ func NewPlayer(session *Session, pusher *Pusher) (player *Player) {
 		pusher.RemovePlayer(player)
 		close(player.queue)
 	})
-	return
+	return player
 }
 
-func (player *Player) QueueRTP(pack *RTPPack) *Player {
+func (player *_Player) ID() string {
+	return player.Session.ID
+}
+
+func (player *_Player) Path() string {
+	return player.Session.URL
+}
+
+func (player *_Player) TransType() TransType {
+	return player.Session.TransType
+}
+
+func (player *_Player) InBytes() int {
+	return player.Session.InBytes
+}
+
+func (player *_Player) OutBytes() int {
+	return player.Session.OutBytes
+}
+
+func (player *_Player) StartAt() time.Time {
+	return player.Session.StartAt
+}
+
+func (player *_Player) QueueRTP(pack *RTPPack) Player {
 	logger := player.logger
 	if pack == nil {
 		logger.Printf("player queue enter nil pack, drop it")
@@ -39,7 +79,7 @@ func (player *Player) QueueRTP(pack *RTPPack) *Player {
 	return player
 }
 
-func (player *Player) Start() {
+func (player *_Player) Start() {
 	logger := player.logger
 	timer := time.Unix(0, 0)
 	var pack *RTPPack
@@ -65,4 +105,8 @@ func (player *Player) Start() {
 			timer = time.Now()
 		}
 	}
+}
+
+func (player *_Player) Stop() {
+	player.Session.Stop()
 }

@@ -76,6 +76,7 @@ type TransType int
 const (
 	TRANS_TYPE_TCP TransType = iota
 	TRANS_TYPE_UDP
+	TRANS_TYPE_INTERNAL
 )
 
 func (tt TransType) String() string {
@@ -84,6 +85,8 @@ func (tt TransType) String() string {
 		return "TCP"
 	case TRANS_TYPE_UDP:
 		return "UDP"
+	case TRANS_TYPE_INTERNAL:
+		return "Internal"
 	}
 	return "unknow"
 }
@@ -131,7 +134,7 @@ type Session struct {
 	aChannelNum int
 
 	Pusher      *Pusher
-	Player      *Player
+	Player      Player
 	UDPClient   *UDPClient
 	RTPHandles  []func(*RTPPack)
 	StopHandles []func()
@@ -148,10 +151,13 @@ func NewSession(server *Server, conn net.Conn) *Session {
 	authorizationEnable := utils.Conf().Section("rtsp").Key("authorization_enable").MustInt(0)
 	close_old := utils.Conf().Section("rtsp").Key("close_old").MustInt(0)
 	session := &Session{
-		ID:                  shortid.MustGenerate(),
-		Server:              server,
-		Conn:                timeoutTCPConn,
-		connRW:              bufio.NewReadWriter(bufio.NewReaderSize(timeoutTCPConn, networkBuffer), bufio.NewWriterSize(timeoutTCPConn, networkBuffer)),
+		ID:     shortid.MustGenerate(),
+		Server: server,
+		Conn:   timeoutTCPConn,
+		connRW: bufio.NewReadWriter(
+			bufio.NewReaderSize(timeoutTCPConn, networkBuffer),
+			bufio.NewWriterSize(timeoutTCPConn, networkBuffer),
+		),
 		StartAt:             time.Now(),
 		Timeout:             utils.Conf().Section("rtsp").Key("timeout").MustInt(0),
 		authorizationEnable: authorizationEnable != 0,
@@ -422,6 +428,7 @@ func (session *Session) handleRequest(req *Request) {
 			session.Stop()
 		}
 	}()
+	// Authorization part
 	if req.Method != "OPTIONS" {
 		if session.authorizationEnable {
 			authLine := req.Header["Authorization"]

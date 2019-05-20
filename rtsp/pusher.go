@@ -13,7 +13,7 @@ import (
 type Pusher struct {
 	*Session
 	*RTSPClient
-	players        map[string]*Player //SessionID <-> Player
+	players        map[string]Player //SessionID <-> Player
 	playersLock    sync.RWMutex
 	gopCacheEnable bool
 	gopCache       []*RTPPack
@@ -161,7 +161,7 @@ func NewClientPusher(client *RTSPClient) (pusher *Pusher) {
 	pusher = &Pusher{
 		RTSPClient:     client,
 		Session:        nil,
-		players:        make(map[string]*Player),
+		players:        make(map[string]Player),
 		gopCacheEnable: utils.Conf().Section("rtsp").Key("gop_cache_enable").MustBool(true),
 		gopCache:       make([]*RTPPack, 0),
 
@@ -183,7 +183,7 @@ func NewPusher(session *Session) (pusher *Pusher) {
 	pusher = &Pusher{
 		Session:        session,
 		RTSPClient:     nil,
-		players:        make(map[string]*Player),
+		players:        make(map[string]Player),
 		gopCacheEnable: utils.Conf().Section("rtsp").Key("gop_cache_enable").MustBool(true),
 		gopCache:       make([]*RTPPack, 0),
 
@@ -261,8 +261,8 @@ func (pusher *Pusher) BroadcastRTP(pack *RTPPack) *Pusher {
 	return pusher
 }
 
-func (pusher *Pusher) GetPlayers() (players map[string]*Player) {
-	players = make(map[string]*Player)
+func (pusher *Pusher) GetPlayers() (players map[string]Player) {
+	players = make(map[string]Player)
 	pusher.playersLock.RLock()
 	for k, v := range pusher.players {
 		players[k] = v
@@ -271,7 +271,7 @@ func (pusher *Pusher) GetPlayers() (players map[string]*Player) {
 	return
 }
 
-func (pusher *Pusher) AddPlayer(player *Player) *Pusher {
+func (pusher *Pusher) AddPlayer(player Player) *Pusher {
 	logger := pusher.Logger()
 	if pusher.gopCacheEnable {
 		pusher.gopCacheLock.RLock()
@@ -283,8 +283,8 @@ func (pusher *Pusher) AddPlayer(player *Player) *Pusher {
 	}
 
 	pusher.playersLock.Lock()
-	if _, ok := pusher.players[player.ID]; !ok {
-		pusher.players[player.ID] = player
+	if _, ok := pusher.players[player.ID()]; !ok {
+		pusher.players[player.ID()] = player
 		go player.Start()
 		logger.Printf("%v start, now player size[%d]", player, len(pusher.players))
 	}
@@ -292,14 +292,15 @@ func (pusher *Pusher) AddPlayer(player *Player) *Pusher {
 	return pusher
 }
 
-func (pusher *Pusher) RemovePlayer(player *Player) *Pusher {
+// RemovePlayer from pusher, stop receive data
+func (pusher *Pusher) RemovePlayer(player Player) *Pusher {
 	logger := pusher.Logger()
 	pusher.playersLock.Lock()
 	if len(pusher.players) == 0 {
 		pusher.playersLock.Unlock()
 		return pusher
 	}
-	delete(pusher.players, player.ID)
+	delete(pusher.players, player.ID())
 	logger.Printf("%v end, now player size[%d]\n", player, len(pusher.players))
 	pusher.playersLock.Unlock()
 	return pusher
@@ -307,13 +308,13 @@ func (pusher *Pusher) RemovePlayer(player *Player) *Pusher {
 
 func (pusher *Pusher) ClearPlayer() {
 	// copy a new map to avoid deadlock
-	players := make(map[string]*Player)
+	players := make(map[string]Player)
 	pusher.playersLock.Lock()
 	for k, v := range pusher.players {
 		//v.Stop()
 		players[k] = v
 	}
-	pusher.players = make(map[string]*Player)
+	pusher.players = make(map[string]Player)
 	pusher.playersLock.Unlock()
 
 	for _, v := range players {

@@ -101,28 +101,23 @@ func (h *APIHandler) Players(c *gin.Context) {
 	if err := c.Bind(form); err != nil {
 		return
 	}
-	players := make([]*rtsp.Player, 0)
+	players := make([]rtsp.Player, 0)
 	for _, pusher := range rtsp.Instance.GetPushers() {
 		for _, player := range pusher.GetPlayers() {
 			players = append(players, player)
 		}
 	}
-	hostname := utils.GetRequestHostname(c.Request)
 	_players := make([]interface{}, 0)
 	for i := 0; i < len(players); i++ {
 		player := players[i]
-		port := player.Server.TCPPort
-		rtsp := fmt.Sprintf("rtsp://%s:%d%s", hostname, port, player.Path)
-		if port == 554 {
-			rtsp = fmt.Sprintf("rtsp://%s%s", hostname, player.Path)
-		}
+		path := player.Path()
 		_players = append(_players, map[string]interface{}{
-			"id":        player.ID,
-			"path":      rtsp,
-			"transType": player.TransType.String(),
-			"inBytes":   player.InBytes,
-			"outBytes":  player.OutBytes,
-			"startAt":   utils.DateTime(player.StartAt),
+			"id":        player.ID(),
+			"path":      path,
+			"transType": player.TransType().String(),
+			"inBytes":   player.InBytes(),
+			"outBytes":  player.OutBytes(),
+			"startAt":   utils.DateTime(player.StartAt()),
 		})
 	}
 	pr := utils.NewPageResult(_players)
