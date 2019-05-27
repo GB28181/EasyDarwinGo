@@ -1,12 +1,20 @@
 package rtsp
 
 import (
+	"bytes"
 	"encoding/binary"
 )
 
 const (
 	RTP_FIXED_HEADER_LENGTH = 12
 )
+
+// RTPPack of internal data switch
+type RTPPack struct {
+	Type    RTPType
+	Buffer  *bytes.Buffer
+	Channel int // Mostly audio channel index, can be video channel index
+}
 
 type RTPInfo struct {
 	Version        int
@@ -65,4 +73,59 @@ func ParseRTP(rtpBytes []byte) *RTPInfo {
 	}
 
 	return info
+}
+
+func (p *RTPPack) SerializeToRecordLength() int {
+	return 4 + p.Buffer.Len()
+}
+
+// SerializeToRecord for storage
+// return grow length
+func (p *RTPPack) SerializeToRecord(buf *bytes.Buffer) {
+	header := make([]byte, 4)
+	// place holder for the magic number $
+	header[0] = byte(p.Type)
+	// change to actual channel when vod send
+	header[1] = byte(p.Channel)
+	// rest is same as RTP over TCP
+	binary.BigEndian.PutUint16(header[2:], uint16(p.Buffer.Len()))
+
+	buf.Write(header)
+	buf.Write(p.Buffer.Bytes())
+}
+
+// DerializeFromRecordToRTPOverTCP returns
+// channelMap [RTPPack.Type<<1 + RTPPack.Channel]
+func DerializeFromRecordToRTPOverTCP(buf []byte, channelMap []int) (*RTPPack, []byte, int, error) {
+	p, consumed, err := DerializeFromRecordToRTPOverUDP(buf)
+	if nil != err {
+		return nil, nil, 0, err
+	}
+	sendChannel := channelMap[(int(p.Type)<<1)+p.Channel]
+	if sendChannel < 0 {
+		return nil, nil, 0, ErrorChannelMap
+	}
+	// modify raw
+	buf[0] = 0x24
+	buf[1] = byte(sendChannel)
+
+	return p, buf[:consumed], consumed, nil
+}
+
+// DerializeFromRecordToRTPOverUDP returns
+func DerializeFromRecordToRTPOverUDP(buf []byte) (*RTPPack, int, error) {
+	if len(buf) < 4 {
+		return nil, 0, ErrorNeedMore
+	}
+	p := &RTPPack{
+		Type:    RTPType(buf[0]),
+		Channel: int(buf[1]),
+	}
+	length := int(binary.BigEndian.Uint16(buf[2:]))
+	if len(buf) < 4+length {
+		return nil, 0, ErrorNeedMore
+	}
+	p.Buffer = bytes.NewBuffer(buf[4 : 4+length])
+
+	return p, 4 + length, nil
 }

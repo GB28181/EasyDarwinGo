@@ -2,40 +2,56 @@ package rtsp
 
 import (
 	"fmt"
-	"log"
 	"net"
-	"os"
 	"sync"
-
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 type Server struct {
-	SessionLogger
 	TCPListener    *net.TCPListener
 	TCPPort        int
 	Stoped         bool
 	pushers        map[string]*Pusher // Path <-> Pusher
 	pushersLock    sync.RWMutex
+	players        map[string]Player
+	playersLock    sync.RWMutex
 	addPusherCh    chan *Pusher
 	removePusherCh chan *Pusher
 }
 
-var Instance *Server = &Server{
-	SessionLogger:  SessionLogger{log.New(os.Stdout, "[RTSPServer]", log.LstdFlags|log.Lshortfile)},
-	Stoped:         true,
-	TCPPort:        utils.Conf().Section("rtsp").Key("port").MustInt(554),
-	pushers:        make(map[string]*Pusher),
-	addPusherCh:    make(chan *Pusher),
-	removePusherCh: make(chan *Pusher),
+var Instance *Server
+
+func initServer() error {
+	Instance = &Server{
+		Stoped:         true,
+		TCPPort:        config.RTSP.Port,
+		pushers:        make(map[string]*Pusher),
+		addPusherCh:    make(chan *Pusher),
+		removePusherCh: make(chan *Pusher),
+	}
+
+	return nil
 }
 
 func GetServer() *Server {
 	return Instance
 }
 
+func (server *Server) pusherHooks() {
+	for {
+		select {
+		case _, ok := <-server.addPusherCh:
+			if !ok {
+				return
+			}
+		case _, ok := <-server.removePusherCh:
+			if !ok {
+				return
+			}
+		}
+	}
+}
+
 func (server *Server) Start() (err error) {
-	logger := server.logger
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", server.TCPPort))
 	if err != nil {
 		return
@@ -45,61 +61,24 @@ func (server *Server) Start() (err error) {
 		return
 	}
 
-	localRecord := utils.Conf().Section("rtsp").Key("save_stream_to_local").MustInt(0)
-	ffmpeg := utils.Conf().Section("rtsp").Key("ffmpeg_path").MustString("")
-	m3u8_dir_path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")
-	SaveStreamToLocal := false
-	if (len(ffmpeg) > 0) && localRecord > 0 && len(m3u8_dir_path) > 0 {
-		err := utils.EnsureDir(m3u8_dir_path)
-		if err != nil {
-			logger.Printf("Create m3u8_dir_path[%s] err:%v.", m3u8_dir_path, err)
-		} else {
-			SaveStreamToLocal = true
-		}
-	}
-	go func() { // save to local.
-		if SaveStreamToLocal {
-			logger.Printf("Prepare to save stream to local....")
-			defer logger.Printf("End save stream to local....")
-		}
-		//var pusher *Pusher
-		addChnOk := true
-		removeChnOk := true
-		for addChnOk || removeChnOk {
-			select {
-			case _, addChnOk = <-server.addPusherCh:
-				if addChnOk {
-					logger.Printf("addPusherChan %s")
-				} else {
-					logger.Printf("addPusherChan closed")
-				}
-
-			case _, removeChnOk = <-server.removePusherCh:
-				if removeChnOk {
-					logger.Printf("removePusherCh called")
-				} else {
-					logger.Printf("addPusherChan closed")
-				}
-			}
-		}
-	}()
+	go server.pusherHooks()
 
 	server.Stoped = false
 	server.TCPListener = listener
-	logger.Println("rtsp server start on", server.TCPPort)
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
+	log.Infof("RTSP server start on[%d]", server.TCPPort)
+	networkBuffer := config.RTSP.NetworkBuffer
 	for !server.Stoped {
 		conn, err := server.TCPListener.Accept()
 		if err != nil {
-			logger.Println(err)
+			log.Errorf("RTSP server listen fail:[%v]", err)
 			continue
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			if err := tcpConn.SetReadBuffer(networkBuffer); err != nil {
-				logger.Printf("rtsp server conn set read buffer error, %v", err)
+				log.Errorf("RTSP server conn set read buffer error, %v", err)
 			}
 			if err := tcpConn.SetWriteBuffer(networkBuffer); err != nil {
-				logger.Printf("rtsp server conn set write buffer error, %v", err)
+				log.Errorf("RTSP server conn set write buffer error, %v", err)
 			}
 		}
 
@@ -110,8 +89,7 @@ func (server *Server) Start() (err error) {
 }
 
 func (server *Server) Stop() {
-	logger := server.logger
-	logger.Println("rtsp server stop on", server.TCPPort)
+	log.Infof("rtsp server stop on", server.TCPPort)
 	server.Stoped = true
 	if server.TCPListener != nil {
 		server.TCPListener.Close()
@@ -126,24 +104,23 @@ func (server *Server) Stop() {
 }
 
 func (server *Server) AddPusher(pusher *Pusher, closeOld bool) bool {
-	logger := server.logger
 	added := false
 	server.pushersLock.Lock()
 	old, ok := server.pushers[pusher.Path()]
 	if !ok {
 		server.pushers[pusher.Path()] = pusher
-		logger.Printf("%v start, now pusher size[%d]", pusher, len(server.pushers))
+		log.Infof("%v start, now pusher size[%d]", pusher, len(server.pushers))
 		added = true
 	} else {
 		if closeOld {
 			server.pushers[pusher.Path()] = pusher
-			logger.Printf("%v start, replace old pusher", pusher)
+			log.Infof("%v start, replace old pusher", pusher)
 			added = true
 		}
 	}
 	server.pushersLock.Unlock()
 	if ok && closeOld {
-		logger.Printf("old pusher %v stoped", pusher)
+		log.Infof("old pusher %v stoped", pusher)
 		old.Stop()
 		server.removePusherCh <- old
 	}
@@ -155,12 +132,11 @@ func (server *Server) AddPusher(pusher *Pusher, closeOld bool) bool {
 }
 
 func (server *Server) RemovePusher(pusher *Pusher) {
-	logger := server.logger
 	removed := false
 	server.pushersLock.Lock()
 	if _pusher, ok := server.pushers[pusher.Path()]; ok && pusher.ID() == _pusher.ID() {
 		delete(server.pushers, pusher.Path())
-		logger.Printf("%v end, now pusher size[%d]\n", pusher, len(server.pushers))
+		log.Infof("%v end, now pusher size[%d]\n", pusher, len(server.pushers))
 		removed = true
 	}
 	server.pushersLock.Unlock()

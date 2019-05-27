@@ -1,8 +1,10 @@
 package models
 
+// Stream of source
 type Stream struct {
-	URL               string `gorm:"type:varchar(256);primary_key;unique"`
-	CustomPath        string `gorm:"type:varchar(256)"`
+	ID                int    `gorm:"primary_key"`
+	URL               string `gorm:"type:varchar(254);unique"`
+	CustomPath        string `gorm:"type:varchar(254);unique"`
 	IdleTimeout       int
 	HeartbeatInterval int
 }

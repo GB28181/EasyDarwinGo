@@ -1,4 +1,4 @@
-package utils
+package routers
 
 import (
 	"fmt"
@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-type PageForm struct {
+// PageRequest normal page request
+type PageRequest struct {
 	Start int    `form:"start"`
 	Limit int    `form:"limit"`
 	Q     string `form:"q"`
@@ -17,38 +18,37 @@ type PageForm struct {
 	Order string `form:"order"`
 }
 
-func (p PageForm) String() string {
-	return fmt.Sprintf("PageForm[Start=%d, Limit=%d, Q=%s, Sort=%s, Order=%s]", p.Start, p.Limit, p.Q, p.Sort, p.Order)
-}
-
-func NewPageForm() *PageForm {
-	return &PageForm{
+// NewPageRequest returns
+func NewPageRequest() *PageRequest {
+	return &PageRequest{
 		Start: 0,
 		Limit: math.MaxInt32,
 	}
 }
 
-type PageResult struct {
+// PageResponse normal page response
+type PageResponse struct {
 	Total int         `json:"total"`
 	Rows  interface{} `json:"rows"`
 }
 
-func NewPageResult(rows interface{}) *PageResult {
+// NewPageResponse returns
+func NewPageResponse(rows interface{}) *PageResponse {
 	v := reflect.ValueOf(rows)
 	if v.Kind() == reflect.Slice {
-		return &PageResult{
+		return &PageResponse{
 			Total: v.Len(),
 			Rows:  rows,
 		}
 	} else {
-		return &PageResult{
+		return &PageResponse{
 			Total: 1,
 			Rows:  []interface{}{rows},
 		}
 	}
 }
 
-func (pr *PageResult) Slice(start, limit int) *PageResult {
+func (pr *PageResponse) Slice(start, limit int) *PageResponse {
 	if limit < 0 || start < 0 {
 		return pr
 	}
@@ -76,7 +76,7 @@ func (pr *PageResult) Slice(start, limit int) *PageResult {
 	return pr
 }
 
-func (pr *PageResult) Sort(by, order string) *PageResult {
+func (pr *PageResponse) Sort(by, order string) *PageResponse {
 	if by == "" {
 		return pr
 	}

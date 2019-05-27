@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 type UDPClient struct {
@@ -21,6 +19,17 @@ type UDPClient struct {
 	VControlConn *net.UDPConn
 
 	Stoped bool
+}
+
+// NewUDPClient returns
+func NewUDPClient(session *Session) *UDPClient {
+	return &UDPClient{
+		Session:      session,
+		APort:        []int{-1, -1},
+		AConn:        []*net.UDPConn{nil, nil},
+		AControlPort: []int{-1, -1},
+		AControlConn: []*net.UDPConn{nil, nil},
+	}
 }
 
 func (s *UDPClient) Stop() {
@@ -51,10 +60,9 @@ func (s *UDPClient) Stop() {
 }
 
 func (c *UDPClient) SetupAudio(aChannel int) (err error) {
-	logger := c.logger
 	defer func() {
 		if err != nil {
-			logger.Println(err)
+			log.Error(err)
 			c.Stop()
 		}
 	}()
@@ -68,12 +76,12 @@ func (c *UDPClient) SetupAudio(aChannel int) (err error) {
 	if err != nil {
 		return
 	}
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
+	networkBuffer := config.RTSP.NetworkBuffer
 	if err := c.AConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio conn set read buffer error, %v", err)
+		log.Errorf("udp client audio conn set read buffer error, %v", err)
 	}
 	if err := c.AConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio conn set write buffer error, %v", err)
+		log.Errorf("udp client audio conn set write buffer error, %v", err)
 	}
 
 	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.AControlPort[aChannel]))
@@ -85,19 +93,18 @@ func (c *UDPClient) SetupAudio(aChannel int) (err error) {
 		return
 	}
 	if err := c.AControlConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio control conn set read buffer error, %v", err)
+		log.Errorf("udp client audio control conn set read buffer error, %v", err)
 	}
 	if err := c.AControlConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio control conn set write buffer error, %v", err)
+		log.Errorf("udp client audio control conn set write buffer error, %v", err)
 	}
 	return
 }
 
 func (c *UDPClient) SetupVideo() (err error) {
-	logger := c.logger
 	defer func() {
 		if err != nil {
-			logger.Println(err)
+			log.Error(err)
 			c.Stop()
 		}
 	}()
@@ -111,12 +118,12 @@ func (c *UDPClient) SetupVideo() (err error) {
 	if err != nil {
 		return
 	}
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
+	networkBuffer := config.RTSP.NetworkBuffer
 	if err := c.VConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video conn set read buffer error, %v", err)
+		log.Errorf("udp client video conn set read buffer error, %v", err)
 	}
 	if err := c.VConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video conn set write buffer error, %v", err)
+		log.Errorf("udp client video conn set write buffer error, %v", err)
 	}
 
 	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.VControlPort))
@@ -128,10 +135,10 @@ func (c *UDPClient) SetupVideo() (err error) {
 		return
 	}
 	if err := c.VControlConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video control conn set read buffer error, %v", err)
+		log.Errorf("udp client video control conn set read buffer error, %v", err)
 	}
 	if err := c.VControlConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video control conn set write buffer error, %v", err)
+		log.Errorf("udp client video control conn set write buffer error, %v", err)
 	}
 	return
 }
@@ -156,8 +163,10 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 		return
 	}
 	if conn == nil {
-		err = fmt.Errorf("udp client send rtp pack type[%v] failed, conn not found", pack.Type)
-		return
+		// It could be client not setting up all media channel
+		// For efficient , not format error
+		// err = fmt.Errorf("udp client send rtp pack type[%v] failed, conn not found", pack.Type)
+		return nil
 	}
 	n, err := conn.Write(pack.Buffer.Bytes())
 	if err != nil {

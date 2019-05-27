@@ -7,10 +7,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,18 +16,10 @@ import (
 	"time"
 
 	"github.com/EasyDarwin/EasyDarwin/models"
-	"github.com/penggy/EasyGoLib/db"
-	"github.com/penggy/EasyGoLib/utils"
 	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/teris-io/shortid"
 )
-
-type RTPPack struct {
-	Type    RTPType
-	Buffer  *bytes.Buffer
-	Channel int // Mostly audio channel index, can be video channel index
-}
 
 type SessionType int
 
@@ -48,7 +38,7 @@ func (st SessionType) String() string {
 	return "unknow"
 }
 
-type RTPType int
+type RTPType uint8
 
 const (
 	RTP_TYPE_AUDIO RTPType = iota
@@ -94,7 +84,6 @@ func (tt TransType) String() string {
 const UDP_BUF_SIZE = 1048576
 
 type Session struct {
-	SessionLogger
 	ID        string
 	Server    *Server
 	Conn      *RichConn
@@ -144,12 +133,19 @@ func (session *Session) String() string {
 	return fmt.Sprintf("session[%v][%v][%s][%s]", session.Type, session.TransType, session.Path, session.ID)
 }
 
+// NewSession returns
 func NewSession(server *Server, conn net.Conn) *Session {
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(204800)
-	timeoutMillis := utils.Conf().Section("rtsp").Key("timeout").MustInt(0)
+	// networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(204800)
+	// timeoutMillis := utils.Conf().Section("rtsp").Key("timeout").MustInt(0)
+	// authorizationEnable := utils.Conf().Section("rtsp").Key("authorization_enable").MustInt(0)
+	// closeOld := utils.Conf().Section("rtsp").Key("close_old").MustInt(0)
+
+	networkBuffer := config.RTSP.NetworkBuffer
+	timeoutMillis := config.RTSP.Timeout
+	authorizationEnable := config.RTSP.AuthorizationEnable
+	closeOld := config.RTSP.CloseOld
+
 	timeoutTCPConn := &RichConn{conn, time.Duration(timeoutMillis) * time.Millisecond}
-	authorizationEnable := utils.Conf().Section("rtsp").Key("authorization_enable").MustInt(0)
-	close_old := utils.Conf().Section("rtsp").Key("close_old").MustInt(0)
 	session := &Session{
 		ID:     shortid.MustGenerate(),
 		Server: server,
@@ -159,7 +155,7 @@ func NewSession(server *Server, conn net.Conn) *Session {
 			bufio.NewWriterSize(timeoutTCPConn, networkBuffer),
 		),
 		StartAt:             time.Now(),
-		Timeout:             utils.Conf().Section("rtsp").Key("timeout").MustInt(0),
+		Timeout:             config.RTSP.Timeout,
 		authorizationEnable: authorizationEnable != 0,
 		RTPHandles:          make([]func(*RTPPack), 0),
 		StopHandles:         make([]func(), 0),
@@ -167,13 +163,9 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		vRTPControlChannel:  -1,
 		aRTPChannel:         []int{-1, -1},
 		aRTPControlChannel:  []int{-1, -1},
-		closeOld:            close_old != 0,
+		closeOld:            closeOld != 0,
 	}
 
-	session.logger = log.New(os.Stdout, fmt.Sprintf("[%s]", session.ID), log.LstdFlags|log.Lshortfile)
-	if !utils.Debug {
-		session.logger.SetOutput(utils.GetLogWriter())
-	}
 	return session
 }
 
@@ -200,27 +192,26 @@ func (session *Session) Start() {
 	defer session.Stop()
 	buf1 := make([]byte, 1)
 	buf2 := make([]byte, 2)
-	logger := session.logger
 	timer := time.Unix(0, 0)
 	for !session.Stoped {
 		if _, err := io.ReadFull(session.connRW, buf1); err != nil {
-			logger.Println(session, err)
+			log.Errorf("%s:%v", session, err)
 			return
 		}
 		if buf1[0] == 0x24 { //rtp data
 			if _, err := io.ReadFull(session.connRW, buf1); err != nil {
-				logger.Println(err)
+				log.Errorf("%s:%v", session, err)
 				return
 			}
 			if _, err := io.ReadFull(session.connRW, buf2); err != nil {
-				logger.Println(err)
+				log.Errorf("%s:%v", session, err)
 				return
 			}
 			channel := int(buf1[0])
 			rtpLen := int(binary.BigEndian.Uint16(buf2))
 			rtpBytes := make([]byte, rtpLen)
 			if _, err := io.ReadFull(session.connRW, rtpBytes); err != nil {
-				logger.Println(err)
+				log.Errorf("%s:%v", session, err)
 				return
 			}
 			rtpBuf := bytes.NewBuffer(rtpBytes)
@@ -234,7 +225,7 @@ func (session *Session) Start() {
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
-					logger.Println("Recv an audio RTP package")
+					log.Debug("%s, Recv an audio RTP package", session)
 					timer = time.Now()
 				}
 			case session.aRTPChannel[1]:
@@ -245,7 +236,7 @@ func (session *Session) Start() {
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
-					logger.Println("Recv an audio RTP package")
+					log.Debug("%s, Recv an audio RTP package", session)
 					timer = time.Now()
 				}
 			case session.aRTPControlChannel[0]:
@@ -267,7 +258,7 @@ func (session *Session) Start() {
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
-					logger.Println("Recv an video RTP package")
+					log.Debugf("[%s] Recv an video RTP package", session)
 					timer = time.Now()
 				}
 			case session.vRTPControlChannel:
@@ -276,11 +267,11 @@ func (session *Session) Start() {
 					Buffer: rtpBuf,
 				}
 			default:
-				logger.Printf("unknow rtp pack type, %v", pack.Type)
+				log.Errorf("[%s] unknow rtp pack type: %v", session, pack.Type)
 				continue
 			}
 			if pack == nil {
-				logger.Printf("session tcp got nil rtp pack")
+				log.Errorf("[%s] get nil packet", session, pack.Type)
 				continue
 			}
 			session.InBytes += rtpLen + 4
@@ -292,7 +283,7 @@ func (session *Session) Start() {
 			reqBuf.Write(buf1)
 			for !session.Stoped {
 				if line, isPrefix, err := session.connRW.ReadLine(); err != nil {
-					logger.Println(err)
+					log.Errorf("[%s]%v", session, err)
 					return
 				} else {
 					reqBuf.Write(line)
@@ -310,10 +301,11 @@ func (session *Session) Start() {
 						if contentLen > 0 {
 							bodyBuf := make([]byte, contentLen)
 							if n, err := io.ReadFull(session.connRW, bodyBuf); err != nil {
-								logger.Println(err)
+								log.Errorf("[%s]%v", session, err)
 								return
 							} else if n != contentLen {
-								logger.Printf("read rtsp request body failed, expect size[%d], got size[%d]", contentLen, n)
+								log.Errorf("[%s] read rtsp request body failed, expect size[%d], got size[%d]",
+									session, contentLen, n)
 								return
 							}
 							req.Body = string(bodyBuf)
@@ -376,7 +368,7 @@ func CheckAuth(authLine string, method string, sessionNonce string) error {
 		return fmt.Errorf("CheckAuth error : uri not found")
 	}
 	var user models.User
-	err := db.SQLite.Where("Username = ?", username).First(&user).Error
+	err := models.DB.Where("Username = ?", username).First(&user).Error
 	if err != nil {
 		return fmt.Errorf("CheckAuth error : user not exists")
 	}
@@ -393,16 +385,15 @@ func (session *Session) handleRequest(req *Request) {
 	//if session.Timeout > 0 {
 	//	session.Conn.SetDeadline(time.Now().Add(time.Duration(session.Timeout) * time.Second))
 	//}
-	logger := session.logger
-	logger.Printf("<<<\n%s", req)
+	log.Debugf("<<<\n%s", req)
 	res := NewResponse(200, "OK", req.Header["CSeq"], session.ID, "")
 	defer func() {
 		if p := recover(); p != nil {
-			logger.Printf("handleRequest err ocurs:%v", p)
+			log.Errorf("[%s] handleRequest err ocurs:%v", session, p)
 			res.StatusCode = 500
 			res.Status = fmt.Sprintf("Internal Server Error")
 		}
-		logger.Printf(">>>\n%s", res)
+		log.Debugf(">>>\n%s", res)
 		outBytes := []byte(res.String())
 		session.connWLock.Lock()
 		session.connRW.Write(outBytes)
@@ -424,7 +415,7 @@ func (session *Session) handleRequest(req *Request) {
 			}
 		}
 		if res.StatusCode != 200 && res.StatusCode != 401 {
-			logger.Printf("Response request error[%d]. stop session.", res.StatusCode)
+			log.Errorf("Response request error[%d]. stop session.", res.StatusCode)
 			session.Stop()
 		}
 	}()
@@ -438,7 +429,7 @@ func (session *Session) handleRequest(req *Request) {
 				if err == nil {
 					authFailed = false
 				} else {
-					logger.Printf("%v", err)
+					log.Errorf("[%s] %v", session, err)
 				}
 			}
 			if authFailed {
@@ -478,11 +469,11 @@ func (session *Session) handleRequest(req *Request) {
 			case "video":
 				session.VControl = media.Attributes.Get("control")
 				session.VCodec = media.Formats[0].Name
-				logger.Printf("video codec[%s]\n", session.VCodec)
+				log.Infof("video codec[%s]", session.VCodec)
 			case "audio":
 				session.AControl[session.aChannelNum] = media.Attributes.Get("control")
 				session.ACodec[session.aChannelNum] = media.Formats[0].Name
-				logger.Printf("audio codec[%s]\n", session.ACodec[session.aChannelNum])
+				log.Infof("audio codec[%s]", session.ACodec[session.aChannelNum])
 				session.aChannelNum++
 			}
 		}
@@ -491,7 +482,7 @@ func (session *Session) handleRequest(req *Request) {
 
 		addedToServer := session.Server.AddPusher(session.Pusher, session.closeOld)
 		if !addedToServer {
-			logger.Printf("reject pusher.")
+			log.Info("reject pusher[%s]", session.Pusher.ID())
 			res.StatusCode = 406
 			res.Status = "Not Acceptable"
 		}
@@ -605,28 +596,22 @@ func (session *Session) handleRequest(req *Request) {
 			} else {
 				res.StatusCode = 500
 				res.Status = fmt.Sprintf("SETUP [TCP] got UnKown control:%s", setupPath)
-				logger.Printf("SETUP [TCP] got UnKown control:%s", setupPath)
+				log.Errorf("SETUP [TCP] got UnKown control:%s", setupPath)
 			}
-			logger.Printf("Parse SETUP req.TRANSPORT:TCP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
+			log.Infof("Parse SETUP req.TRANSPORT:TCP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
 				session.Type, setupPath, aPathes, vPath)
 		} else if udpMatchs := mudp.FindStringSubmatch(ts); udpMatchs != nil {
 			session.TransType = TRANS_TYPE_UDP
 			// no need for tcp timeout.
 			session.Conn.timeout = 0
 			if session.Type == SESSEION_TYPE_PLAYER && session.UDPClient == nil {
-				session.UDPClient = &UDPClient{
-					Session:      session,
-					APort:        []int{-1, -1},
-					AConn:        []*net.UDPConn{nil, nil},
-					AControlPort: []int{-1, -1},
-					AControlConn: []*net.UDPConn{nil, nil},
-				}
+				session.UDPClient = NewUDPClient(session)
 			}
 			if session.Type == SESSION_TYPE_PUSHER && session.Pusher.UDPServer == nil {
 				session.Pusher.UDPServer = NewUDPServerFromSession(session)
 			}
 
-			logger.Printf("Parse SETUP req.TRANSPORT:UDP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
+			log.Infof("Parse SETUP req.TRANSPORT:UDP.Session.Type:%d,control:%s, AControl:%v,VControl:%s",
 				session.Type, setupPath, aPathes, vPath)
 			matchAudio := false
 			for _, aPath := range aPathes {
@@ -659,7 +644,7 @@ func (session *Session) handleRequest(req *Request) {
 						tss = append(tss, tail...)
 						ts = strings.Join(tss, ";")
 					} else {
-						logger.Printf("Unknow session type:%d", session.Type)
+						log.Errorf("Unknow session type:%d", session.Type)
 						res.StatusCode = 400
 						res.Status = "Bad Request"
 						return
@@ -698,7 +683,7 @@ func (session *Session) handleRequest(req *Request) {
 					ts = strings.Join(tss, ";")
 				}
 			} else {
-				logger.Printf("SETUP [UDP] got UnKown control:%s", setupPath)
+				log.Errorf("SETUP [UDP] got UnKown control:%s", setupPath)
 			}
 		}
 		res.Header["Transport"] = ts

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
+	"github.com/EasyDarwin/EasyDarwin/utils"
 	"github.com/gin-gonic/gin"
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 /**
@@ -43,11 +43,13 @@ import (
  * @apiSuccess (200) {Number} rows.onlines 在线人数
  */
 func (h *APIHandler) Pushers(c *gin.Context) {
-	form := utils.NewPageForm()
+	form := NewPageRequest()
 	if err := c.Bind(form); err != nil {
 		return
 	}
+
 	hostname := utils.GetRequestHostname(c.Request)
+
 	pushers := make([]interface{}, 0)
 	for _, pusher := range rtsp.Instance.GetPushers() {
 		port := pusher.Server().TCPPort
@@ -70,7 +72,7 @@ func (h *APIHandler) Pushers(c *gin.Context) {
 			"onlines":   len(pusher.GetPlayers()),
 		})
 	}
-	pr := utils.NewPageResult(pushers)
+	pr := NewPageResponse(pushers)
 	if form.Sort != "" {
 		pr.Sort(form.Sort, form.Order)
 	}
@@ -97,7 +99,7 @@ func (h *APIHandler) Pushers(c *gin.Context) {
  * @apiSuccess (200) {String} rows.startAt 开始时间
  */
 func (h *APIHandler) Players(c *gin.Context) {
-	form := utils.NewPageForm()
+	form := NewPageRequest()
 	if err := c.Bind(form); err != nil {
 		return
 	}
@@ -120,7 +122,7 @@ func (h *APIHandler) Players(c *gin.Context) {
 			"startAt":   utils.DateTime(player.StartAt()),
 		})
 	}
-	pr := utils.NewPageResult(_players)
+	pr := NewPageResponse(_players)
 	if form.Sort != "" {
 		pr.Sort(form.Sort, form.Order)
 	}

@@ -5,14 +5,11 @@ import (
 	"log"
 	"mime"
 	"net/http"
-	"path/filepath"
 
-	"github.com/penggy/EasyGoLib/db"
-
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/penggy/EasyGoLib/utils"
 	"github.com/penggy/cors"
 	"github.com/penggy/sessions"
 	validator "gopkg.in/go-playground/validator.v8"
@@ -64,7 +61,6 @@ func init() {
 
 	gin.DisableConsoleColor()
 	gin.SetMode(gin.ReleaseMode)
-	gin.DefaultWriter = utils.GetLogWriter()
 }
 
 func Errors() gin.HandlerFunc {
@@ -77,10 +73,8 @@ func Errors() gin.HandlerFunc {
 				case validator.ValidationErrors:
 					errs := err.Err.(validator.ValidationErrors)
 					for _, err := range errs {
-						sec := utils.Conf().Section("localize")
-						field := sec.Key(err.Field).MustString(err.Field)
-						tag := sec.Key(err.Tag).MustString(err.Tag)
-						c.AbortWithStatusJSON(http.StatusBadRequest, fmt.Sprintf("%s %s", field, tag))
+						c.AbortWithStatusJSON(http.StatusBadRequest,
+							fmt.Sprintf("%s %s", err.Field, err.Tag))
 						return
 					}
 				default:
@@ -111,17 +105,18 @@ func Init() (err error) {
 	Router.Use(Errors())
 	Router.Use(cors.Default())
 
-	store := sessions.NewGormStoreWithOptions(db.SQLite, sessions.GormStoreOptions{
+	store := sessions.NewGormStoreWithOptions(models.DB, sessions.GormStoreOptions{
 		TableName: "t_sessions",
 	}, []byte("EasyDarwin@2018"))
-	tokenTimeout := utils.Conf().Section("http").Key("token_timeout").MustInt(7 * 86400)
-	store.Options(sessions.Options{HttpOnly: true, MaxAge: tokenTimeout, Path: "/"})
+
+	store.Options(sessions.Options{
+		HttpOnly: true,
+		MaxAge:   config.HTTP.TokenTimeout,
+		Path:     "/",
+	})
 	sessionHandle := sessions.Sessions("token", store)
 
-	{
-		wwwDir := filepath.Join(utils.DataDir(), "www")
-		Router.Use(static.Serve("/", static.LocalFile(wwwDir, true)))
-	}
+	Router.Use(static.Serve("/", static.LocalFile(config.HTTP.Static, true)))
 
 	{
 		api := Router.Group("/api/v1").Use(sessionHandle)
@@ -138,18 +133,6 @@ func Init() (err error) {
 
 		api.GET("/stream/start", API.StreamStart)
 		api.GET("/stream/stop", API.StreamStop)
-
-		api.GET("/record/folders", API.RecordFolders)
-		api.GET("/record/files", API.RecordFiles)
-	}
-
-	{
-
-		mp4Path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")
-		if len(mp4Path) != 0 {
-			Router.Use(static.Serve("/record", static.LocalFile(mp4Path, true)))
-		}
-
 	}
 
 	return

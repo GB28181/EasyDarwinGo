@@ -9,13 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/penggy/EasyGoLib/db"
-
 	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
+	"github.com/EasyDarwin/EasyDarwin/utils"
 	figure "github.com/common-nighthawk/go-figure"
-	"github.com/penggy/EasyGoLib/utils"
 	"github.com/penggy/service"
 )
 
@@ -111,15 +109,13 @@ func (p *program) Start(s service.Service) (err error) {
 	p.StartRTSP()
 	p.StartHTTP()
 
-	if !utils.Debug {
-		log.Println("log files -->", utils.LogDir())
-		log.SetOutput(utils.GetLogWriter())
-	}
+	// TODO: log sestup
 	go func() {
 		for range routers.API.RestartChan {
 			p.StopHTTP()
 			p.StopRTSP()
-			utils.ReloadConf()
+			// utils.ReloadConf()
+			// TODO : reload config and init
 			p.StartRTSP()
 			p.StartHTTP()
 		}
@@ -129,8 +125,7 @@ func (p *program) Start(s service.Service) (err error) {
 		log.Printf("demon pull streams")
 		for {
 			var streams []models.Stream
-			db.SQLite.Find(&streams)
-			if err := db.SQLite.Find(&streams).Error; err != nil {
+			if err := models.DB.Find(&streams).Error; err != nil {
 				log.Printf("find stream err:%v", err)
 				return
 			}
@@ -167,7 +162,8 @@ func (p *program) Start(s service.Service) (err error) {
 
 func (p *program) Stop(s service.Service) (err error) {
 	defer log.Println("********** STOP **********")
-	defer utils.CloseLogWriter()
+	// defer utils.CloseLogWriter()
+	// TODO: stop log
 	p.StopHTTP()
 	p.StopRTSP()
 	models.Close()
@@ -175,7 +171,8 @@ func (p *program) Stop(s service.Service) (err error) {
 }
 
 func main() {
-	flag.StringVar(&utils.FlagVarConfFile, "config", "", "configure file path")
+	// TODO: input config filepathf
+	// flag.StringVar(&utils.FlagVarConfFile, "config", "", "configure file path")
 	flag.Parse()
 	tail := flag.Args()
 
@@ -188,14 +185,13 @@ func main() {
 	routers.BuildVersion = fmt.Sprintf("%s.%s", routers.BuildVersion, gitCommitCode)
 	routers.BuildDateTime = buildDateTime
 
-	sec := utils.Conf().Section("service")
 	svcConfig := &service.Config{
-		Name:        sec.Key("name").MustString("EasyDarwin_Service"),
-		DisplayName: sec.Key("display_name").MustString("EasyDarwin_Service"),
-		Description: sec.Key("description").MustString("EasyDarwin_Service"),
+		Name:        config.Service.Name,
+		DisplayName: config.Service.DisplayName,
+		Description: config.Service.Description,
 	}
 
-	httpPort := utils.Conf().Section("http").Key("port").MustInt(10008)
+	httpPort := config.HTTP.Port
 	rtspServer := rtsp.GetServer()
 	p := &program{
 		httpPort:   httpPort,

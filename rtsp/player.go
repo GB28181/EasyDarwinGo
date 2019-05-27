@@ -2,8 +2,6 @@ package rtsp
 
 import (
 	"time"
-
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 // Player wrapper of Media data receiver
@@ -32,7 +30,7 @@ func NewPlayer(session *Session, pusher *Pusher) Player {
 	player := &_Player{
 		Session: session,
 		Pusher:  pusher,
-		queue:   make(chan *RTPPack, utils.Conf().Section("rtp").Key("send_queue_length").MustInt(128)),
+		queue:   make(chan *RTPPack, config.Player.SendQueueLength),
 	}
 	session.StopHandles = append(session.StopHandles, func() {
 		pusher.RemovePlayer(player)
@@ -66,42 +64,40 @@ func (player *_Player) StartAt() time.Time {
 }
 
 func (player *_Player) QueueRTP(pack *RTPPack) Player {
-	logger := player.logger
 	if pack == nil {
-		logger.Printf("player queue enter nil pack, drop it")
+		log.Debug("player queue enter nil pack, drop it")
 		return player
 	}
 	select {
 	case player.queue <- pack:
 	default:
-		logger.Printf("player queue full, drop it")
+		log.Infof("player[%s] queue full, drop it", player.ID())
 	}
 	return player
 }
 
 func (player *_Player) Start() {
-	logger := player.logger
 	timer := time.Unix(0, 0)
 	var pack *RTPPack
 	var ok bool
 	for !player.Stoped {
 		pack, ok = <-player.queue
 		if !ok {
-			logger.Printf("player send queue stopped, quit send loop")
+			log.Infof("player[%s] send queue stopped, quit send loop", player.ID())
 			return
 		}
 		if pack == nil {
 			if !player.Stoped {
-				logger.Printf("player not stoped, but queue take out nil pack")
+				log.Error("Player[%s] not stoped, but queue take out nil pack", player.ID())
 			}
 			continue
 		}
-		if err := player.SendRTP(pack); err != nil {
-			logger.Println(err)
+		if err := player.Session.SendRTP(pack); err != nil {
+			log.Error(err)
 		}
 		elapsed := time.Now().Sub(timer)
 		if elapsed >= 30*time.Second {
-			logger.Printf("Send a package.type:%d\n", pack.Type)
+			log.Debugf("Send a package.type:%d\n", pack.Type)
 			timer = time.Now()
 		}
 	}

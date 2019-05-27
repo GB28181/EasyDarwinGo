@@ -2,12 +2,9 @@ package rtsp
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 type Pusher struct {
@@ -68,13 +65,6 @@ func (pusher *Pusher) ID() string {
 		return pusher.Session.ID
 	}
 	return pusher.RTSPClient.ID
-}
-
-func (pusher *Pusher) Logger() *log.Logger {
-	if pusher.Session != nil {
-		return pusher.Session.logger
-	}
-	return pusher.RTSPClient.logger
 }
 
 func (pusher *Pusher) VCodec() string {
@@ -162,7 +152,7 @@ func NewClientPusher(client *RTSPClient) (pusher *Pusher) {
 		RTSPClient:     client,
 		Session:        nil,
 		players:        make(map[string]Player),
-		gopCacheEnable: utils.Conf().Section("rtsp").Key("gop_cache_enable").MustBool(true),
+		gopCacheEnable: config.RTSP.GopCacheEnable != 0,
 		gopCache:       make([]*RTPPack, 0),
 
 		cond:  sync.NewCond(&sync.Mutex{}),
@@ -184,7 +174,7 @@ func NewPusher(session *Session) (pusher *Pusher) {
 		Session:        session,
 		RTSPClient:     nil,
 		players:        make(map[string]Player),
-		gopCacheEnable: utils.Conf().Section("rtsp").Key("gop_cache_enable").MustBool(true),
+		gopCacheEnable: config.RTSP.GopCacheEnable != 0,
 		gopCache:       make([]*RTPPack, 0),
 
 		cond:  sync.NewCond(&sync.Mutex{}),
@@ -214,7 +204,6 @@ func (pusher *Pusher) QueueRTP(pack *RTPPack) *Pusher {
 }
 
 func (pusher *Pusher) Start() {
-	logger := pusher.Logger()
 	for !pusher.Stoped() {
 		var pack *RTPPack
 		pusher.cond.L.Lock()
@@ -228,7 +217,7 @@ func (pusher *Pusher) Start() {
 		pusher.cond.L.Unlock()
 		if pack == nil {
 			if !pusher.Stoped() {
-				logger.Printf("pusher not stoped, but queue take out nil pack")
+				log.Error("Pusher not stoped, but queue take out nil pack")
 			}
 			continue
 		}
@@ -271,8 +260,7 @@ func (pusher *Pusher) GetPlayers() (players map[string]Player) {
 	return
 }
 
-func (pusher *Pusher) AddPlayer(player Player) *Pusher {
-	logger := pusher.Logger()
+func (pusher *Pusher) AddPlayer(player Player) error {
 	if pusher.gopCacheEnable {
 		pusher.gopCacheLock.RLock()
 		for _, pack := range pusher.gopCache {
@@ -283,25 +271,27 @@ func (pusher *Pusher) AddPlayer(player Player) *Pusher {
 	}
 
 	pusher.playersLock.Lock()
+	defer pusher.playersLock.Unlock()
 	if _, ok := pusher.players[player.ID()]; !ok {
 		pusher.players[player.ID()] = player
 		go player.Start()
-		logger.Printf("%v start, now player size[%d]", player, len(pusher.players))
+		log.Infof("%v start, now player size[%d]", player, len(pusher.players))
+	} else {
+		return fmt.Errorf("Player[%s] already registed", player.ID())
 	}
-	pusher.playersLock.Unlock()
-	return pusher
+
+	return nil
 }
 
 // RemovePlayer from pusher, stop receive data
 func (pusher *Pusher) RemovePlayer(player Player) *Pusher {
-	logger := pusher.Logger()
 	pusher.playersLock.Lock()
 	if len(pusher.players) == 0 {
 		pusher.playersLock.Unlock()
 		return pusher
 	}
 	delete(pusher.players, player.ID())
-	logger.Printf("%v end, now player size[%d]\n", player, len(pusher.players))
+	log.Infof("%v end, now player size[%d]\n", player, len(pusher.players))
 	pusher.playersLock.Unlock()
 	return pusher
 }
