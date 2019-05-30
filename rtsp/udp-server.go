@@ -47,11 +47,11 @@ func NewUDPServerFromSession(session *Session) *UDPServer {
 
 func (s *UDPServer) AddInputBytes(bytes int) {
 	if s.Session != nil {
-		s.Session.InBytes += bytes
+		s.Session.InBytes += uint(bytes)
 		return
 	}
 	if s.RTSPClient != nil {
-		s.RTSPClient.InBytes += bytes
+		s.RTSPClient.InBytes += uint(bytes)
 		return
 	}
 	panic(fmt.Errorf("session and RTSPClient both nil"))

@@ -1,0 +1,26 @@
+syntax = "proto3";
+package record;
+
+message Task {
+  string ID = 1;
+  string PlayPath = 2;
+}
+
+message TaskExecute {
+  int64 ID = 1;
+  string TaskID = 2;
+  string SDPRaw = 3;
+  int64 StartTime = 4;
+  int64 EndTime = 5;
+}
+
+message Block {
+  int64 ID = 1;
+  TaskExecute TaskExecute = 2;
+  string TaskID = 3;
+  int64 StartTime = 4;
+  int64 EndTime = 5;
+  int32 Size = 6;
+  bytes Data = 7;
+  string Path = 8;
+}

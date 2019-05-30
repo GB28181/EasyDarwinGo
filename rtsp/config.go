@@ -14,6 +14,7 @@ type ConfigRTSP struct {
 type ConfigRecord struct {
 	StoragePath        []string `ini:"storage_path"`
 	ReceiveQueueLength int      `ini:"receive_queue_length"`
+	BlockSize          int      `ini:"block_size"`
 }
 
 type ConfigLog struct {
@@ -49,6 +50,7 @@ func initConfig() error {
 		},
 		Record: ConfigRecord{
 			ReceiveQueueLength: 128,
+			BlockSize:          2 * 1024 * 1024,
 		},
 	}
 	return ini.MapTo(config, "./easydarwin.ini")

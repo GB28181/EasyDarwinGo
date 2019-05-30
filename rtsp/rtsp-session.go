@@ -106,8 +106,8 @@ type Session struct {
 	VCodec   string
 
 	// stats info
-	InBytes  int
-	OutBytes int
+	InBytes  uint
+	OutBytes uint
 	StartAt  time.Time
 	Timeout  int
 
@@ -274,7 +274,7 @@ func (session *Session) Start() {
 				log.Errorf("[%s] get nil packet", session, pack.Type)
 				continue
 			}
-			session.InBytes += rtpLen + 4
+			session.InBytes += uint(rtpLen) + 4
 			for _, h := range session.RTPHandles {
 				h(pack)
 			}
@@ -295,9 +295,9 @@ func (session *Session) Start() {
 						if req == nil {
 							break
 						}
-						session.InBytes += reqBuf.Len()
+						session.InBytes += uint(reqBuf.Len())
 						contentLen := req.GetContentLength()
-						session.InBytes += contentLen
+						session.InBytes += uint(contentLen)
 						if contentLen > 0 {
 							bodyBuf := make([]byte, contentLen)
 							if n, err := io.ReadFull(session.connRW, bodyBuf); err != nil {
@@ -399,7 +399,7 @@ func (session *Session) handleRequest(req *Request) {
 		session.connRW.Write(outBytes)
 		session.connRW.Flush()
 		session.connWLock.Unlock()
-		session.OutBytes += len(outBytes)
+		session.OutBytes += uint(len(outBytes))
 		switch req.Method {
 		case "PLAY", "RECORD":
 			switch session.Type {
@@ -731,7 +731,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 		session.connRW.Write(pack.Buffer.Bytes())
 		session.connRW.Flush()
 		session.connWLock.Unlock()
-		session.OutBytes += pack.Buffer.Len() + 4
+		session.OutBytes += uint(pack.Buffer.Len()) + 4
 	case RTP_TYPE_AUDIOCONTROL:
 		bufChannel := make([]byte, 2)
 		bufChannel[0] = 0x24
@@ -744,7 +744,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 		session.connRW.Write(pack.Buffer.Bytes())
 		session.connRW.Flush()
 		session.connWLock.Unlock()
-		session.OutBytes += pack.Buffer.Len() + 4
+		session.OutBytes += uint(pack.Buffer.Len()) + 4
 	case RTP_TYPE_VIDEO:
 		bufChannel := make([]byte, 2)
 		bufChannel[0] = 0x24
@@ -757,7 +757,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 		session.connRW.Write(pack.Buffer.Bytes())
 		session.connRW.Flush()
 		session.connWLock.Unlock()
-		session.OutBytes += pack.Buffer.Len() + 4
+		session.OutBytes += uint(pack.Buffer.Len()) + 4
 	case RTP_TYPE_VIDEOCONTROL:
 		bufChannel := make([]byte, 2)
 		bufChannel[0] = 0x24
@@ -770,7 +770,7 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 		session.connRW.Write(pack.Buffer.Bytes())
 		session.connRW.Flush()
 		session.connWLock.Unlock()
-		session.OutBytes += pack.Buffer.Len() + 4
+		session.OutBytes += uint(pack.Buffer.Len()) + 4
 	default:
 		err = fmt.Errorf("session tcp send rtp got unkown pack type[%v]", pack.Type)
 	}

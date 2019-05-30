@@ -174,6 +174,6 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 		return
 	}
 	// logger.Printf("udp client write [%d/%d]", n, pack.Buffer.Len())
-	c.Session.OutBytes += n
+	c.Session.OutBytes += uint(n)
 	return
 }

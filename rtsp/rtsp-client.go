@@ -31,8 +31,8 @@ type RTSPClient struct {
 	Session              string
 	Seq                  int
 	connRW               *bufio.ReadWriter
-	InBytes              int
-	OutBytes             int
+	InBytes              uint
+	OutBytes             uint
 	TransType            TransType
 	StartAt              time.Time
 	Sdp                  *sdp.Session
@@ -444,7 +444,7 @@ func (client *RTSPClient) startStream() {
 				log.Debugf("%v read rtp frame.", client)
 				loggerTime = time.Now()
 			}
-			client.InBytes += int(length + 4)
+			client.InBytes += uint(length) + 4
 			for _, h := range client.RTPHandles {
 				h(pack)
 			}

@@ -14,8 +14,8 @@ type Player interface {
 	ID() string
 	Path() string
 	TransType() TransType
-	InBytes() int
-	OutBytes() int
+	InBytes() uint
+	OutBytes() uint
 	StartAt() time.Time
 }
 
@@ -51,11 +51,11 @@ func (player *_Player) TransType() TransType {
 	return player.Session.TransType
 }
 
-func (player *_Player) InBytes() int {
+func (player *_Player) InBytes() uint {
 	return player.Session.InBytes
 }
 
-func (player *_Player) OutBytes() int {
+func (player *_Player) OutBytes() uint {
 	return player.Session.OutBytes
 }
 

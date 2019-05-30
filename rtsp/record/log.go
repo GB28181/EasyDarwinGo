@@ -1,4 +1,4 @@
-package rtsp
+package record
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 var log = logrus.New()
 
 func initLog() error {
-	baseLogPath := path.Join("./log", "rtsp.log")
+	baseLogPath := path.Join("./log", "record.log")
 	writer, err := rotatelogs.New(
 		baseLogPath+".%Y%m%d%H%M",
 		rotatelogs.WithLinkName(baseLogPath),      // 生成软链，指向最新日志文件

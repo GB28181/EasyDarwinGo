@@ -133,6 +133,8 @@ func Init() (err error) {
 
 		api.GET("/stream/start", API.StreamStart)
 		api.GET("/stream/stop", API.StreamStop)
+
+		api.GET("/record/start", API.StartRecord)
 	}
 
 	return

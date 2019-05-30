@@ -106,20 +106,20 @@ func (pusher *Pusher) URL() string {
 
 func (pusher *Pusher) AddOutputBytes(size int) {
 	if pusher.Session != nil {
-		pusher.Session.OutBytes += size
+		pusher.Session.OutBytes += uint(size)
 		return
 	}
-	pusher.RTSPClient.OutBytes += size
+	pusher.RTSPClient.OutBytes += uint(size)
 }
 
-func (pusher *Pusher) InBytes() int {
+func (pusher *Pusher) InBytes() uint {
 	if pusher.Session != nil {
 		return pusher.Session.InBytes
 	}
 	return pusher.RTSPClient.InBytes
 }
 
-func (pusher *Pusher) OutBytes() int {
+func (pusher *Pusher) OutBytes() uint {
 	if pusher.Session != nil {
 		return pusher.Session.OutBytes
 	}
@@ -260,6 +260,13 @@ func (pusher *Pusher) GetPlayers() (players map[string]Player) {
 	return
 }
 
+func (pusher *Pusher) GetPlayer(ID string) Player {
+	pusher.playersLock.RLock()
+	player := pusher.players[ID]
+	pusher.playersLock.RUnlock()
+	return player
+}
+
 func (pusher *Pusher) AddPlayer(player Player) error {
 	if pusher.gopCacheEnable {
 		pusher.gopCacheLock.RLock()
@@ -307,9 +314,11 @@ func (pusher *Pusher) ClearPlayer() {
 	pusher.players = make(map[string]Player)
 	pusher.playersLock.Unlock()
 
-	for _, v := range players {
-		v.Stop()
-	}
+	go func() {
+		for _, v := range players {
+			v.Stop()
+		}
+	}()
 }
 
 func (pusher *Pusher) shouldSequenceStart(rtp *RTPInfo) bool {

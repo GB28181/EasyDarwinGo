@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EasyDarwin/EasyDarwin/rtsp/record"
+
 	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
@@ -121,13 +123,15 @@ func (p *program) Start(s service.Service) (err error) {
 		}
 	}()
 
+	// Restart pushers
 	go func() {
 		log.Printf("demon pull streams")
 		for {
 			var streams []models.Stream
 			if err := models.DB.Find(&streams).Error; err != nil {
 				log.Printf("find stream err:%v", err)
-				return
+				time.Sleep(10 * time.Second)
+				continue
 			}
 			for i := len(streams) - 1; i > -1; i-- {
 				v := streams[i]
@@ -153,6 +157,36 @@ func (p *program) Start(s service.Service) (err error) {
 				rtsp.GetServer().AddPusher(pusher, false)
 				//streams = streams[0:i]
 				//streams = append(streams[:i], streams[i+1:]...)
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}()
+
+	// Restart record
+	go func() {
+		log.Printf("demon pull recorders")
+		for {
+			tasks := record.GetAllTasks()
+			for _, task := range tasks {
+				log.Print(task.String())
+				// TODO: More safe pusher.AddPlayer
+				pusher := rtsp.Instance.GetPusher(task.PlayPath)
+				if nil == pusher {
+					continue
+				}
+				if nil != pusher.GetPlayer(task.ID) {
+					continue
+				}
+				log.Printf("Task[%s] off, restarting", task.ID)
+				recorder, err := rtsp.NewRecorder(task, pusher)
+				if nil != err {
+					log.Printf("NewRecorder error[%v]", err)
+					continue
+				}
+				if err = pusher.AddPlayer(recorder); nil != err {
+					log.Printf("Addplayer error[%v]", err)
+					continue
+				}
 			}
 			time.Sleep(10 * time.Second)
 		}
@@ -206,9 +240,7 @@ func main() {
 	if len(tail) > 0 {
 		cmd := strings.ToLower(tail[0])
 		if cmd == "install" || cmd == "stop" || cmd == "start" || cmd == "uninstall" {
-			if cmd == "install" || cmd == "stop" {
-				figure.NewFigure("EasyDarwin", "", false).Print()
-			}
+			figure.NewFigure("EasyDarwin", "", false).Print()
 			log.Println(svcConfig.Name, cmd, "...")
 			if err = service.Control(s, cmd); err != nil {
 				log.Println(err)

@@ -70,7 +70,9 @@ func (server *Server) Start() (err error) {
 	for !server.Stoped {
 		conn, err := server.TCPListener.Accept()
 		if err != nil {
-			log.Errorf("RTSP server listen fail:[%v]", err)
+			if !server.Stoped {
+				log.Errorf("RTSP server listen fail:[%v]", err)
+			}
 			continue
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -89,7 +91,7 @@ func (server *Server) Start() (err error) {
 }
 
 func (server *Server) Stop() {
-	log.Infof("rtsp server stop on", server.TCPPort)
+	log.Infof("rtsp server stop on %d", server.TCPPort)
 	server.Stoped = true
 	if server.TCPListener != nil {
 		server.TCPListener.Close()
@@ -145,6 +147,7 @@ func (server *Server) RemovePusher(pusher *Pusher) {
 	}
 }
 
+// GetPusher according to path of request
 func (server *Server) GetPusher(path string) (pusher *Pusher) {
 	server.pushersLock.RLock()
 	pusher = server.pushers[path]
