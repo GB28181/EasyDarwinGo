@@ -23,6 +23,10 @@ const store = new Vuex.Store({
                 title: "拉流列表",
                 icon: "play"
             }, {
+                path: '/recorders',
+                title: "录像",
+                icon: "play"
+            }, {
                 path: "/about",
                 icon: "support",
                 title: "版本信息"                

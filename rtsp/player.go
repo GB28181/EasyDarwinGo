@@ -21,12 +21,12 @@ type Player interface {
 
 type _Player struct {
 	*Session
-	Pusher *Pusher
+	Pusher Pusher
 	queue  chan *RTPPack
 }
 
 // NewPlayer of network session
-func NewPlayer(session *Session, pusher *Pusher) Player {
+func NewPlayer(session *Session, pusher Pusher) Player {
 	player := &_Player{
 		Session: session,
 		Pusher:  pusher,

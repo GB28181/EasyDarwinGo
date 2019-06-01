@@ -5,52 +5,104 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EasyDarwin/EasyDarwin/utils"
+	"github.com/benbjohnson/immutable"
 )
 
-type Pusher struct {
+// PusherMode pull from server or push from client
+type PusherMode int
+
+// PusherMode constants
+const (
+	PusherModePush PusherMode = iota
+	PusherModePull
+)
+
+// Pusher of RTSP server
+type Pusher interface {
+	// Info
+	ID() string
+	Path() string
+	Source() string
+	TransType() string
+	InBytes() uint
+	OutBytes() uint
+	StartAt() time.Time
+	URL() string
+	Mode() PusherMode
+	// State
+	Start()
+	Stop()
+	Server() *Server
+	AddOnStopHandle(func())
+	// Player
+	AddPlayer(Player) error
+	RemovePlayer(Player) Pusher
+	ClearPlayer()
+	GetPlayers() *immutable.Map
+	GetPlayer(ID string) Player
+	// Media
+	QueueRTP(*RTPPack) Pusher
+	AControl() []string
+	VControl() string
+	ACodec() []string
+	VCodec() string
+	SDPRaw() string
+}
+
+type _Pusher struct {
 	*Session
 	*RTSPClient
-	players        map[string]Player //SessionID <-> Player
-	playersLock    sync.RWMutex
+	players        *immutable.Map //SessionID <-> Player
+	playersLocker  *utils.SpinLock
 	gopCacheEnable bool
 	gopCache       []*RTPPack
 	gopCacheLock   sync.RWMutex
-	UDPServer      *UDPServer
 
 	spsppsInSTAPaPack bool
-	cond              *sync.Cond
-	queue             []*RTPPack
+	queue             chan *RTPPack
 }
 
-func (pusher *Pusher) String() string {
+func (pusher *_Pusher) String() string {
 	if pusher.Session != nil {
 		return pusher.Session.String()
 	}
 	return pusher.RTSPClient.String()
 }
 
-func (pusher *Pusher) Server() *Server {
+func (pusher *_Pusher) Mode() PusherMode {
+	if pusher.Session != nil {
+		return PusherModePush
+	} else if pusher.RTSPClient != nil {
+		return PusherModePull
+	}
+	log.Fatal("Unsupprted mode")
+	return PusherModePush
+}
+
+func (pusher *_Pusher) Server() *Server {
 	if pusher.Session != nil {
 		return pusher.Session.Server
 	}
 	return pusher.RTSPClient.Server
 }
 
-func (pusher *Pusher) SDPRaw() string {
+func (pusher *_Pusher) SDPRaw() string {
 	if pusher.Session != nil {
 		return pusher.Session.SDPRaw
 	}
 	return pusher.RTSPClient.SDPRaw
 }
 
-func (pusher *Pusher) Stoped() bool {
+func (pusher *_Pusher) Stoped() bool {
 	if pusher.Session != nil {
 		return pusher.Session.Stoped
 	}
 	return pusher.RTSPClient.Stoped
 }
 
-func (pusher *Pusher) Path() string {
+func (pusher *_Pusher) Path() string {
 	if pusher.Session != nil {
 		return pusher.Session.Path
 	}
@@ -60,28 +112,28 @@ func (pusher *Pusher) Path() string {
 	return pusher.RTSPClient.Path
 }
 
-func (pusher *Pusher) ID() string {
+func (pusher *_Pusher) ID() string {
 	if pusher.Session != nil {
 		return pusher.Session.ID
 	}
 	return pusher.RTSPClient.ID
 }
 
-func (pusher *Pusher) VCodec() string {
+func (pusher *_Pusher) VCodec() string {
 	if pusher.Session != nil {
 		return pusher.Session.VCodec
 	}
 	return pusher.RTSPClient.VCodec
 }
 
-func (pusher *Pusher) ACodec() []string {
+func (pusher *_Pusher) ACodec() []string {
 	if pusher.Session != nil {
 		return pusher.Session.ACodec
 	}
 	return pusher.RTSPClient.ACodec
 }
 
-func (pusher *Pusher) AControl() []string {
+func (pusher *_Pusher) AControl() []string {
 	if pusher.Session != nil {
 		fmt.Printf("AControl return:%v", pusher.Session.AControl)
 		return pusher.Session.AControl
@@ -90,21 +142,21 @@ func (pusher *Pusher) AControl() []string {
 	return pusher.RTSPClient.AControl
 }
 
-func (pusher *Pusher) VControl() string {
+func (pusher *_Pusher) VControl() string {
 	if pusher.Session != nil {
 		return pusher.Session.VControl
 	}
 	return pusher.RTSPClient.VControl
 }
 
-func (pusher *Pusher) URL() string {
+func (pusher *_Pusher) URL() string {
 	if pusher.Session != nil {
 		return pusher.Session.URL
 	}
 	return pusher.RTSPClient.URL
 }
 
-func (pusher *Pusher) AddOutputBytes(size int) {
+func (pusher *_Pusher) AddOutputBytes(size int) {
 	if pusher.Session != nil {
 		pusher.Session.OutBytes += uint(size)
 		return
@@ -112,112 +164,111 @@ func (pusher *Pusher) AddOutputBytes(size int) {
 	pusher.RTSPClient.OutBytes += uint(size)
 }
 
-func (pusher *Pusher) InBytes() uint {
+func (pusher *_Pusher) InBytes() uint {
 	if pusher.Session != nil {
 		return pusher.Session.InBytes
 	}
 	return pusher.RTSPClient.InBytes
 }
 
-func (pusher *Pusher) OutBytes() uint {
+func (pusher *_Pusher) OutBytes() uint {
 	if pusher.Session != nil {
 		return pusher.Session.OutBytes
 	}
 	return pusher.RTSPClient.OutBytes
 }
 
-func (pusher *Pusher) TransType() string {
+func (pusher *_Pusher) TransType() string {
 	if pusher.Session != nil {
 		return pusher.Session.TransType.String()
 	}
 	return pusher.RTSPClient.TransType.String()
 }
 
-func (pusher *Pusher) StartAt() time.Time {
+func (pusher *_Pusher) StartAt() time.Time {
 	if pusher.Session != nil {
 		return pusher.Session.StartAt
 	}
 	return pusher.RTSPClient.StartAt
 }
 
-func (pusher *Pusher) Source() string {
+func (pusher *_Pusher) Source() string {
 	if pusher.Session != nil {
 		return pusher.Session.URL
 	}
 	return pusher.RTSPClient.URL
 }
 
-func NewClientPusher(client *RTSPClient) (pusher *Pusher) {
-	pusher = &Pusher{
+func (pusher *_Pusher) AddOnStopHandle(handle func()) {
+	if nil != pusher.RTSPClient {
+		pusher.RTSPClient.StopHandles = append(pusher.RTSPClient.StopHandles, handle)
+	} else if nil != pusher.Session {
+		pusher.Session.StopHandles = append(pusher.Session.StopHandles, handle)
+	}
+}
+
+// NewClientPusher returns
+func NewClientPusher(client *RTSPClient) Pusher {
+	pusher := &_Pusher{
 		RTSPClient:     client,
 		Session:        nil,
-		players:        make(map[string]Player),
+		players:        immutable.NewMap(nil),
+		playersLocker:  &utils.SpinLock{},
 		gopCacheEnable: config.RTSP.GopCacheEnable != 0,
 		gopCache:       make([]*RTPPack, 0),
 
-		cond:  sync.NewCond(&sync.Mutex{}),
-		queue: make([]*RTPPack, 0),
+		queue: make(chan *RTPPack, config.Player.SendQueueLength),
 	}
 	client.RTPHandles = append(client.RTPHandles, func(pack *RTPPack) {
 		pusher.QueueRTP(pack)
 	})
-	client.StopHandles = append(client.StopHandles, func() {
+	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
 		pusher.Server().RemovePusher(pusher)
-		pusher.cond.Broadcast()
 	})
-	return
+
+	return pusher
 }
 
-func NewPusher(session *Session) (pusher *Pusher) {
-	pusher = &Pusher{
+// NewPusher of session
+func NewPusher(session *Session) Pusher {
+	pusher := &_Pusher{
 		Session:        session,
 		RTSPClient:     nil,
-		players:        make(map[string]Player),
+		players:        immutable.NewMap(nil),
+		playersLocker:  &utils.SpinLock{},
 		gopCacheEnable: config.RTSP.GopCacheEnable != 0,
 		gopCache:       make([]*RTPPack, 0),
 
-		cond:  sync.NewCond(&sync.Mutex{}),
-		queue: make([]*RTPPack, 0),
+		queue: make(chan *RTPPack, config.Player.SendQueueLength),
 	}
 	session.RTPHandles = append(session.RTPHandles, func(pack *RTPPack) {
 		pusher.QueueRTP(pack)
 	})
-	session.StopHandles = append(session.StopHandles, func() {
+	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
 		pusher.Server().RemovePusher(pusher)
-		pusher.cond.Broadcast()
-		if pusher.UDPServer != nil {
-			pusher.UDPServer.Stop()
-			pusher.UDPServer = nil
-		}
 	})
-	return
-}
 
-func (pusher *Pusher) QueueRTP(pack *RTPPack) *Pusher {
-	pusher.cond.L.Lock()
-	pusher.queue = append(pusher.queue, pack)
-	pusher.cond.Signal()
-	pusher.cond.L.Unlock()
 	return pusher
 }
 
-func (pusher *Pusher) Start() {
+func (pusher *_Pusher) QueueRTP(pack *RTPPack) Pusher {
+	select {
+	case pusher.queue <- pack:
+	default:
+		log.WithField("id", pusher.ID()).Warn("pusher drop packet")
+	}
+
+	return pusher
+}
+
+func (pusher *_Pusher) Start() {
 	for !pusher.Stoped() {
-		var pack *RTPPack
-		pusher.cond.L.Lock()
-		if len(pusher.queue) == 0 {
-			pusher.cond.Wait()
-		}
-		if len(pusher.queue) > 0 {
-			pack = pusher.queue[0]
-			pusher.queue = pusher.queue[1:]
-		}
-		pusher.cond.L.Unlock()
+		pack := <-pusher.queue
 		if pack == nil {
 			if !pusher.Stoped() {
-				log.Error("Pusher not stoped, but queue take out nil pack")
+				log.Error("_Pusher not stoped, but queue take out nil pack")
 			}
 			continue
 		}
@@ -234,7 +285,7 @@ func (pusher *Pusher) Start() {
 	}
 }
 
-func (pusher *Pusher) Stop() {
+func (pusher *_Pusher) Stop() {
 	if pusher.Session != nil {
 		pusher.Session.Stop()
 		return
@@ -242,32 +293,37 @@ func (pusher *Pusher) Stop() {
 	pusher.RTSPClient.Stop()
 }
 
-func (pusher *Pusher) BroadcastRTP(pack *RTPPack) *Pusher {
-	for _, player := range pusher.GetPlayers() {
+func (pusher *_Pusher) BroadcastRTP(pack *RTPPack) *_Pusher {
+	players := pusher.GetPlayers()
+
+	for itPlayer := players.Iterator(); !itPlayer.Done(); {
+		_, _player := itPlayer.Next()
+		player := _player.(Player)
 		player.QueueRTP(pack)
 		pusher.AddOutputBytes(pack.Buffer.Len())
 	}
+
 	return pusher
 }
 
-func (pusher *Pusher) GetPlayers() (players map[string]Player) {
-	players = make(map[string]Player)
-	pusher.playersLock.RLock()
-	for k, v := range pusher.players {
-		players[k] = v
+func (pusher *_Pusher) GetPlayers() *immutable.Map {
+	pusher.playersLocker.Lock()
+	players := pusher.players
+	pusher.playersLocker.Unlock()
+
+	return players
+}
+
+func (pusher *_Pusher) GetPlayer(ID string) Player {
+	_player, ok := pusher.players.Get(ID)
+	if !ok {
+		return nil
 	}
-	pusher.playersLock.RUnlock()
-	return
+
+	return _player.(Player)
 }
 
-func (pusher *Pusher) GetPlayer(ID string) Player {
-	pusher.playersLock.RLock()
-	player := pusher.players[ID]
-	pusher.playersLock.RUnlock()
-	return player
-}
-
-func (pusher *Pusher) AddPlayer(player Player) error {
+func (pusher *_Pusher) AddPlayer(player Player) error {
 	if pusher.gopCacheEnable {
 		pusher.gopCacheLock.RLock()
 		for _, pack := range pusher.gopCache {
@@ -277,51 +333,48 @@ func (pusher *Pusher) AddPlayer(player Player) error {
 		pusher.gopCacheLock.RUnlock()
 	}
 
-	pusher.playersLock.Lock()
-	defer pusher.playersLock.Unlock()
-	if _, ok := pusher.players[player.ID()]; !ok {
-		pusher.players[player.ID()] = player
-		go player.Start()
-		log.Infof("%v start, now player size[%d]", player, len(pusher.players))
-	} else {
+	var playerIDExist bool
+	pusher.playersLocker.Lock()
+	if _, playerIDExist = pusher.players.Get(player.ID()); !playerIDExist {
+		pusher.players = pusher.players.Set(player.ID(), player)
+	}
+	pusher.playersLocker.Unlock()
+
+	if playerIDExist {
 		return fmt.Errorf("Player[%s] already registed", player.ID())
 	}
+
+	go player.Start()
 
 	return nil
 }
 
 // RemovePlayer from pusher, stop receive data
-func (pusher *Pusher) RemovePlayer(player Player) *Pusher {
-	pusher.playersLock.Lock()
-	if len(pusher.players) == 0 {
-		pusher.playersLock.Unlock()
-		return pusher
-	}
-	delete(pusher.players, player.ID())
-	log.Infof("%v end, now player size[%d]\n", player, len(pusher.players))
-	pusher.playersLock.Unlock()
+func (pusher *_Pusher) RemovePlayer(player Player) Pusher {
+	pusher.playersLocker.Lock()
+	pusher.players = pusher.players.Delete(player.ID())
+	pusher.playersLocker.Unlock()
+
+	log.Infof("player %s end, now player size[%d]\n", player.ID(), pusher.players.Len())
+
 	return pusher
 }
 
-func (pusher *Pusher) ClearPlayer() {
-	// copy a new map to avoid deadlock
-	players := make(map[string]Player)
-	pusher.playersLock.Lock()
-	for k, v := range pusher.players {
-		//v.Stop()
-		players[k] = v
-	}
-	pusher.players = make(map[string]Player)
-	pusher.playersLock.Unlock()
+func (pusher *_Pusher) ClearPlayer() {
+	pusher.playersLocker.Lock()
+	oldPlayers := pusher.players
+	pusher.players = immutable.NewMap(nil)
+	pusher.playersLocker.Unlock()
 
 	go func() {
-		for _, v := range players {
-			v.Stop()
+		for itPlayer := oldPlayers.Iterator(); !itPlayer.Done(); {
+			_, _player := itPlayer.Next()
+			_player.(Player).Stop()
 		}
 	}()
 }
 
-func (pusher *Pusher) shouldSequenceStart(rtp *RTPInfo) bool {
+func (pusher *_Pusher) shouldSequenceStart(rtp *RTPInfo) bool {
 	if strings.EqualFold(pusher.VCodec(), "h264") {
 		var realNALU uint8
 		payloadHeader := rtp.Payload[0] //https://tools.ietf.org/html/rfc6184#section-5.2

@@ -1,32 +1,46 @@
 package record
 
 import (
-	"sync"
+	"container/list"
 
+	"github.com/EasyDarwin/EasyDarwin/utils"
 	"github.com/go-redis/redis"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/ncw/directio"
 )
 
-var blockPool *sync.Pool // optimize
-
-func newBlock() interface{} {
-	block := &Block{
-		Data: directio.AlignedBlock(config.Record.BlockSize),
-	}
-	return block
-}
+var blockDataPool = list.New()
+var blockDataPoolLocker = &utils.SpinLock{}
 
 func initBlockPool() error {
-	blockPool = &sync.Pool{
-		New: newBlock,
-	}
 	return nil
 }
 
 // NewBlock returns
-func NewBlock() *Block {
-	return blockPool.Get().(*Block)
+func NewBlock() (block *Block) {
+	block = &Block{}
+	blockDataPoolLocker.Lock()
+	if blockDataPool.Len() > 0 {
+		el := blockDataPool.Front()
+		block.Data = el.Value.([]byte)
+		blockDataPool.Remove(el)
+	}
+	blockDataPoolLocker.Unlock()
+
+	if nil == block.Data {
+		block.Data = directio.AlignedBlock(config.Record.BlockSize)
+	}
+
+	return
+}
+
+// RecycleBlock to use, !IMPORTANT: make sure block is not in use
+func RecycleBlock(block *Block) {
+	blockDataPoolLocker.Lock()
+	if blockDataPool.Len() <= 16 {
+		blockDataPool.PushBack(block.Data)
+	}
+	blockDataPoolLocker.Unlock()
 }
 
 // AddBlockIndex to store

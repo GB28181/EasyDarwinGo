@@ -1,4 +1,5 @@
 .vscode
+/test
 log/
 /easydarwin
 /EasyDarwin.exe

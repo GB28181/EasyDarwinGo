@@ -13,7 +13,7 @@ import (
 
 type _Recorder struct {
 	taskExecute *record.TaskExecute
-	pusher      *Pusher
+	pusher      Pusher
 	queue       chan *RTPPack
 	// hook and state
 	onStops     []func()
@@ -27,7 +27,7 @@ type _Recorder struct {
 }
 
 // NewRecorder get data from pushers
-func NewRecorder(task *record.Task, pusher *Pusher) (Player, error) {
+func NewRecorder(task *record.Task, pusher Pusher) (Player, error) {
 	taskExecute, err := record.ExecuteTask(task, pusher.SDPRaw())
 	if nil != err {
 		return nil, err
@@ -71,7 +71,7 @@ func (recorder *_Recorder) InBytes() uint {
 }
 
 func (recorder *_Recorder) OutBytes() uint {
-	return 0
+	return recorder.outBytes
 }
 
 func (recorder *_Recorder) StartAt() time.Time {
@@ -138,7 +138,7 @@ func (recorder *_Recorder) Start() {
 		if pack == nil {
 			continue
 		}
-		recorder.inBytes += uint(pack.Buffer.Len())
+		recorder.outBytes += uint(pack.Buffer.Len())
 		recorder.handleRTPPacket(pack)
 	}
 	// send what's left in queue

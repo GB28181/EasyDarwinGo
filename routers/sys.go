@@ -52,7 +52,7 @@ func init() {
 				pusherData = append(pusherData, CountData{Time: now, Total: uint(rtsp.Instance.GetPusherSize())})
 				playerCnt := 0
 				for _, pusher := range rtsp.Instance.GetPushers() {
-					playerCnt += len(pusher.GetPlayers())
+					playerCnt += pusher.GetPlayers().Len()
 				}
 				playerData = append(playerData, CountData{Time: now, Total: uint(playerCnt)})
 

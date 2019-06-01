@@ -39,7 +39,7 @@ func initConfig() error {
 	config = &Config{
 		RTSP: ConfigRTSP{
 			NetworkBuffer:       204800,
-			Timeout:             5 * 1000,
+			Timeout:             5 * 60 * 1000,
 			AuthorizationEnable: 0,
 			CloseOld:            0,
 			GopCacheEnable:      0,

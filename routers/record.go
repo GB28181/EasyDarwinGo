@@ -69,3 +69,21 @@ func (h *APIHandler) StartRecord(c *gin.Context) {
 		Msg:  "OK",
 	})
 }
+
+// QueryRecordResponse of QueryRecordRequest
+type QueryRecordResponse struct {
+	Code int            `form:"code" json:"code"`
+	Msg  string         `form:"msg" json:"msg"`
+	Data []*record.Task `form:"data" json:"data"`
+}
+
+// QueryRecord instance
+func (h *APIHandler) QueryRecord(c *gin.Context) {
+	tasks := record.GetAllTasks()
+
+	c.IndentedJSON(200, &QueryRecordResponse{
+		Code: 0,
+		Msg:  "OK",
+		Data: tasks,
+	})
+}

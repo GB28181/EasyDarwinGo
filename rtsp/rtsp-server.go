@@ -10,12 +10,12 @@ type Server struct {
 	TCPListener    *net.TCPListener
 	TCPPort        int
 	Stoped         bool
-	pushers        map[string]*Pusher // Path <-> Pusher
+	pushers        map[string]Pusher // Path <-> Pusher
 	pushersLock    sync.RWMutex
 	players        map[string]Player
 	playersLock    sync.RWMutex
-	addPusherCh    chan *Pusher
-	removePusherCh chan *Pusher
+	addPusherCh    chan Pusher
+	removePusherCh chan Pusher
 }
 
 var Instance *Server
@@ -24,9 +24,9 @@ func initServer() error {
 	Instance = &Server{
 		Stoped:         true,
 		TCPPort:        config.RTSP.Port,
-		pushers:        make(map[string]*Pusher),
-		addPusherCh:    make(chan *Pusher),
-		removePusherCh: make(chan *Pusher),
+		pushers:        make(map[string]Pusher),
+		addPusherCh:    make(chan Pusher),
+		removePusherCh: make(chan Pusher),
 	}
 
 	return nil
@@ -98,14 +98,14 @@ func (server *Server) Stop() {
 		server.TCPListener = nil
 	}
 	server.pushersLock.Lock()
-	server.pushers = make(map[string]*Pusher)
+	server.pushers = make(map[string]Pusher)
 	server.pushersLock.Unlock()
 
 	close(server.addPusherCh)
 	close(server.removePusherCh)
 }
 
-func (server *Server) AddPusher(pusher *Pusher, closeOld bool) bool {
+func (server *Server) AddPusher(pusher Pusher, closeOld bool) bool {
 	added := false
 	server.pushersLock.Lock()
 	old, ok := server.pushers[pusher.Path()]
@@ -133,7 +133,7 @@ func (server *Server) AddPusher(pusher *Pusher, closeOld bool) bool {
 	return added
 }
 
-func (server *Server) RemovePusher(pusher *Pusher) {
+func (server *Server) RemovePusher(pusher Pusher) {
 	removed := false
 	server.pushersLock.Lock()
 	if _pusher, ok := server.pushers[pusher.Path()]; ok && pusher.ID() == _pusher.ID() {
@@ -148,15 +148,15 @@ func (server *Server) RemovePusher(pusher *Pusher) {
 }
 
 // GetPusher according to path of request
-func (server *Server) GetPusher(path string) (pusher *Pusher) {
+func (server *Server) GetPusher(path string) (pusher Pusher) {
 	server.pushersLock.RLock()
 	pusher = server.pushers[path]
 	server.pushersLock.RUnlock()
 	return
 }
 
-func (server *Server) GetPushers() (pushers map[string]*Pusher) {
-	pushers = make(map[string]*Pusher)
+func (server *Server) GetPushers() (pushers map[string]Pusher) {
+	pushers = make(map[string]Pusher)
 	server.pushersLock.RLock()
 	for k, v := range server.pushers {
 		pushers[k] = v

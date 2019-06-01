@@ -69,7 +69,7 @@ func (h *APIHandler) Pushers(c *gin.Context) {
 			"inBytes":   pusher.InBytes(),
 			"outBytes":  pusher.OutBytes(),
 			"startAt":   utils.DateTime(pusher.StartAt()),
-			"onlines":   len(pusher.GetPlayers()),
+			"onlines":   pusher.GetPlayers().Len(),
 		})
 	}
 	pr := NewPageResponse(pushers)
@@ -105,7 +105,10 @@ func (h *APIHandler) Players(c *gin.Context) {
 	}
 	players := make([]rtsp.Player, 0)
 	for _, pusher := range rtsp.Instance.GetPushers() {
-		for _, player := range pusher.GetPlayers() {
+		_players := pusher.GetPlayers()
+		for itPlayer := _players.Iterator(); !itPlayer.Done(); {
+			_, _player := itPlayer.Next()
+			player := _player.(rtsp.Player)
 			players = append(players, player)
 		}
 	}

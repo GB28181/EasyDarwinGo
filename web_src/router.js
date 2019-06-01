@@ -7,6 +7,7 @@ import AdminLTE from 'components/AdminLTE.vue'
 const Dashboard = () => import(/* webpackChunkName: 'dashboard' */ 'components/Dashboard.vue')
 const PusherList = () => import(/* webpackChunkName: 'pushers' */ 'components/PusherList.vue')
 const PlayerList = () => import(/* webpackChunkName: 'players' */ 'components/PlayerList.vue')
+const RecorderList = () => import(/* webpackChunkName: 'recorders' */ 'components/RecorderList.vue')
 const User = () => import(/* webpackChunkName: 'user' */ 'components/User.vue')
 const About = () => import(/* webpackChunkName: 'about' */ 'components/About.vue')
 
@@ -31,6 +32,9 @@ const router = new Router({
                     path: 'players/:page?',
                     component: PlayerList,
                     props: true
+                }, {
+                    path: 'recorders',
+                    component: RecorderList,
                 }, {
                     path: 'users/:page?',
                     component: User,

@@ -160,5 +160,8 @@ func (storage *Storage) storeBlock() {
 			log.WithField("error", err).Error("Add store index")
 			continue
 		}
+
+		// recycle block
+		RecycleBlock(block)
 	}
 }

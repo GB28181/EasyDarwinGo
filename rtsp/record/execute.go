@@ -46,6 +46,7 @@ func AddExecuteTask(task *Task, te *TaskExecute) error {
 
 // UpdateExecuteTaskEndTime to store
 func UpdateExecuteTaskEndTime(te *TaskExecute, endTime int64) error {
+	// TODO: using zset store execute end time
 	cmd := db.Set(te.getTaskExecuteEndTimeKey(), endTime, 0)
 	if nil != cmd.Err() {
 		log.WithField("cmd", cmd.Args()).Error("redis")
