@@ -15,6 +15,11 @@ func init() {
 
 	err = initServer()
 	if nil != err {
-		panic(err)
+		log.Panic(err)
+	}
+
+	err = initVOD()
+	if nil != err {
+		log.Panic(err)
 	}
 }

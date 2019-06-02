@@ -2,8 +2,8 @@ package routers
 
 import (
 	"github.com/EasyDarwin/EasyDarwin/models"
+	"github.com/EasyDarwin/EasyDarwin/record"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
-	"github.com/EasyDarwin/EasyDarwin/rtsp/record"
 	"github.com/gin-gonic/gin"
 )
 

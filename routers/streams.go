@@ -117,7 +117,7 @@ func (h *APIHandler) StreamStop(c *gin.Context) {
 			log.Printf("Stop %v success ", v)
 			if v.Mode() == rtsp.PusherModePull {
 				var stream models.Stream
-				stream.URL = v.URL()
+				stream.URL = v.Source()
 				models.DB.Delete(stream)
 			}
 			return

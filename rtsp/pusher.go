@@ -17,6 +17,7 @@ type PusherMode int
 const (
 	PusherModePush PusherMode = iota
 	PusherModePull
+	PusherModeVOD
 )
 
 // Pusher of RTSP server
@@ -29,7 +30,6 @@ type Pusher interface {
 	InBytes() uint
 	OutBytes() uint
 	StartAt() time.Time
-	URL() string
 	Mode() PusherMode
 	// State
 	Start()
@@ -38,12 +38,12 @@ type Pusher interface {
 	AddOnStopHandle(func())
 	// Player
 	AddPlayer(Player) error
-	RemovePlayer(Player) Pusher
+	RemovePlayer(Player)
 	ClearPlayer()
 	GetPlayers() *immutable.Map
 	GetPlayer(ID string) Player
 	// Media
-	QueueRTP(*RTPPack) Pusher
+	QueueRTP(*RTPPack)
 	AControl() []string
 	VControl() string
 	ACodec() []string
@@ -149,7 +149,7 @@ func (pusher *_Pusher) VControl() string {
 	return pusher.RTSPClient.VControl
 }
 
-func (pusher *_Pusher) URL() string {
+func (pusher *_Pusher) Source() string {
 	if pusher.Session != nil {
 		return pusher.Session.URL
 	}
@@ -192,13 +192,6 @@ func (pusher *_Pusher) StartAt() time.Time {
 	return pusher.RTSPClient.StartAt
 }
 
-func (pusher *_Pusher) Source() string {
-	if pusher.Session != nil {
-		return pusher.Session.URL
-	}
-	return pusher.RTSPClient.URL
-}
-
 func (pusher *_Pusher) AddOnStopHandle(handle func()) {
 	if nil != pusher.RTSPClient {
 		pusher.RTSPClient.StopHandles = append(pusher.RTSPClient.StopHandles, handle)
@@ -219,9 +212,7 @@ func NewClientPusher(client *RTSPClient) Pusher {
 
 		queue: make(chan *RTPPack, config.Player.SendQueueLength),
 	}
-	client.RTPHandles = append(client.RTPHandles, func(pack *RTPPack) {
-		pusher.QueueRTP(pack)
-	})
+	client.RTPHandles = append(client.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
 		pusher.Server().RemovePusher(pusher)
@@ -242,9 +233,7 @@ func NewPusher(session *Session) Pusher {
 
 		queue: make(chan *RTPPack, config.Player.SendQueueLength),
 	}
-	session.RTPHandles = append(session.RTPHandles, func(pack *RTPPack) {
-		pusher.QueueRTP(pack)
-	})
+	session.RTPHandles = append(session.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
 		pusher.Server().RemovePusher(pusher)
@@ -253,14 +242,12 @@ func NewPusher(session *Session) Pusher {
 	return pusher
 }
 
-func (pusher *_Pusher) QueueRTP(pack *RTPPack) Pusher {
+func (pusher *_Pusher) QueueRTP(pack *RTPPack) {
 	select {
 	case pusher.queue <- pack:
 	default:
 		log.WithField("id", pusher.ID()).Warn("pusher drop packet")
 	}
-
-	return pusher
 }
 
 func (pusher *_Pusher) Start() {
@@ -350,14 +337,12 @@ func (pusher *_Pusher) AddPlayer(player Player) error {
 }
 
 // RemovePlayer from pusher, stop receive data
-func (pusher *_Pusher) RemovePlayer(player Player) Pusher {
+func (pusher *_Pusher) RemovePlayer(player Player) {
 	pusher.playersLocker.Lock()
 	pusher.players = pusher.players.Delete(player.ID())
 	pusher.playersLocker.Unlock()
 
 	log.Infof("player %s end, now player size[%d]\n", player.ID(), pusher.players.Len())
-
-	return pusher
 }
 
 func (pusher *_Pusher) ClearPlayer() {
@@ -379,7 +364,6 @@ func (pusher *_Pusher) shouldSequenceStart(rtp *RTPInfo) bool {
 		var realNALU uint8
 		payloadHeader := rtp.Payload[0] //https://tools.ietf.org/html/rfc6184#section-5.2
 		NaluType := uint8(payloadHeader & 0x1F)
-		// log.Printf("RTP Type:%d", NaluType)
 		switch {
 		case NaluType <= 23:
 			realNALU = rtp.Payload[0]

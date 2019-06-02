@@ -8,7 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/EasyDarwin/EasyDarwin/rtsp/record"
+	"github.com/EasyDarwin/EasyDarwin/record"
 )
 
 type _Recorder struct {
@@ -93,7 +93,15 @@ func (recorder *_Recorder) QueueRTP(pack *RTPPack) Player {
 	return recorder
 }
 
-var _4byteDummy = []byte{0x24, 0x24, 0x24, 0x24}
+const BlockHeaderLen = 20
+
+var _20byteDummy = []byte{
+	0x24, 0x24, 0x24, 0x24, // size of block
+	0x00, 0x01, 0x02, 0x03, // reserved
+	0x04, 0x05, 0x06, 0x07, // reserved
+	0x08, 0x09, 0x0A, 0x0B, // reserved
+	0x0C, 0x0D, 0x0E, 0x0F, // reserved
+}
 
 func (recorder *_Recorder) allocBlock() {
 	recorder.block = record.NewBlock()
@@ -102,29 +110,34 @@ func (recorder *_Recorder) allocBlock() {
 	// block bytes op
 	recorder.blockBuffer = bytes.NewBuffer(recorder.block.Data)
 	recorder.blockBuffer.Reset()
-	recorder.blockBuffer.Write(_4byteDummy) // place holder for length
+	// 20 bytes place holder
+	recorder.blockBuffer.Write(_20byteDummy)
 }
 
 func (recorder *_Recorder) handleRTPPacket(pack *RTPPack) {
-	if pack.SerializeToRecordLength()+recorder.blockBuffer.Len() <= config.Record.BlockSize {
+	if pack.SerializeToRecordLength()+recorder.blockBuffer.Len() <= record.BlockSize() {
 		pack.SerializeToRecord(recorder.blockBuffer)
 		return
 	}
-
-	recorder.block.EndTime = time.Now().Unix()
 
 	log.WithFields(logrus.Fields{
 		"cap": recorder.blockBuffer.Cap(),
 		"len": recorder.blockBuffer.Len(),
 	}).Debug("Block full")
 
-	// write block size and insert to storage
+	// fill block info
+	recorder.block.EndTime = time.Now().Unix()
+	recorder.block.Size = int32(recorder.blockBuffer.Len())
+	// write block size in first 4 bytes
 	binary.LittleEndian.PutUint32(recorder.block.Data, uint32(recorder.blockBuffer.Len()))
+
 	if err := recorder.taskExecute.InsertBlock(recorder.block); nil != err {
 		log.WithFields(logrus.Fields{
 			"error": err,
 			"ID":    recorder.ID(),
 		}).Info("Recorder insert block")
+	} else {
+		recorder.outBytes += uint(record.BlockSize())
 	}
 
 	recorder.allocBlock()
@@ -138,7 +151,6 @@ func (recorder *_Recorder) Start() {
 		if pack == nil {
 			continue
 		}
-		recorder.outBytes += uint(pack.Buffer.Len())
 		recorder.handleRTPPacket(pack)
 	}
 	// send what's left in queue

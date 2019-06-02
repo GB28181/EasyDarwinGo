@@ -3,6 +3,7 @@ package rtsp
 import (
 	"bytes"
 	"encoding/binary"
+	"sync"
 )
 
 const (
@@ -23,13 +24,41 @@ type RTPInfo struct {
 	CSRCCnt        int
 	Marker         bool
 	PayloadType    int
-	SequenceNumber int
-	Timestamp      int
-	SSRC           int
+	SequenceNumber uint16
+	Timestamp      uint32
+	SSRC           uint32
 	Payload        []byte
 	PayloadOffset  int
 }
 
+// RTPPack pool
+var _RTPPackPool = &sync.Pool{
+	New: newRTPPack,
+}
+
+func newRTPPack() interface{} {
+	return &RTPPack{}
+}
+
+// NewRTPPack returns
+func NewRTPPack() *RTPPack {
+	return _RTPPackPool.Get().(*RTPPack)
+}
+
+// RecycleRTPPack to use
+func RecycleRTPPack(packet *RTPPack) {
+	_RTPPackPool.Put(packet)
+}
+
+// GetRTPTimestamp and nothing more
+func GetRTPTimestamp(rtpBytes []byte) (uint32, error) {
+	if len(rtpBytes) < RTP_FIXED_HEADER_LENGTH {
+		return 0, ErrorRTPTooShort
+	}
+	return binary.BigEndian.Uint32(rtpBytes[4:]), nil
+}
+
+// ParseRTP to get info in head
 func ParseRTP(rtpBytes []byte) *RTPInfo {
 	if len(rtpBytes) < RTP_FIXED_HEADER_LENGTH {
 		return nil
@@ -44,9 +73,9 @@ func ParseRTP(rtpBytes []byte) *RTPInfo {
 
 		Marker:         secondByte>>7 == 1,
 		PayloadType:    int(secondByte & 0x7f),
-		SequenceNumber: int(binary.BigEndian.Uint16(rtpBytes[2:])),
-		Timestamp:      int(binary.BigEndian.Uint32(rtpBytes[4:])),
-		SSRC:           int(binary.BigEndian.Uint32(rtpBytes[8:])),
+		SequenceNumber: binary.BigEndian.Uint16(rtpBytes[2:]),
+		Timestamp:      binary.BigEndian.Uint32(rtpBytes[4:]),
+		SSRC:           binary.BigEndian.Uint32(rtpBytes[8:]),
 	}
 	offset := RTP_FIXED_HEADER_LENGTH
 	end := len(rtpBytes)
@@ -94,33 +123,15 @@ func (p *RTPPack) SerializeToRecord(buf *bytes.Buffer) {
 	buf.Write(p.Buffer.Bytes())
 }
 
-// DerializeFromRecordToRTPOverTCP returns
-// channelMap [RTPPack.Type<<1 + RTPPack.Channel]
-func DerializeFromRecordToRTPOverTCP(buf []byte, channelMap []int) (*RTPPack, []byte, int, error) {
-	p, consumed, err := DerializeFromRecordToRTPOverUDP(buf)
-	if nil != err {
-		return nil, nil, 0, err
-	}
-	sendChannel := channelMap[(int(p.Type)<<1)+p.Channel]
-	if sendChannel < 0 {
-		return nil, nil, 0, ErrorChannelMap
-	}
-	// modify raw
-	buf[0] = 0x24
-	buf[1] = byte(sendChannel)
-
-	return p, buf[:consumed], consumed, nil
-}
-
-// DerializeFromRecordToRTPOverUDP returns
-func DerializeFromRecordToRTPOverUDP(buf []byte) (*RTPPack, int, error) {
+// DerializeFromRecord returns
+func DerializeFromRecord(buf []byte) (*RTPPack, int, error) {
 	if len(buf) < 4 {
 		return nil, 0, ErrorNeedMore
 	}
-	p := &RTPPack{
-		Type:    RTPType(buf[0]),
-		Channel: int(buf[1]),
-	}
+	p := NewRTPPack()
+	p.Type = RTPType(buf[0])
+	p.Channel = int(buf[1])
+
 	length := int(binary.BigEndian.Uint16(buf[2:]))
 	if len(buf) < 4+length {
 		return nil, 0, ErrorNeedMore

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -230,7 +231,7 @@ func (session *Session) Start() {
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
-					log.Debug("%s, Recv an audio RTP package", session)
+					log.Debugf("%s, Recv an audio RTP package", session.String())
 					timer = time.Now()
 				}
 			case session.aRTPChannel[1]:
@@ -241,7 +242,7 @@ func (session *Session) Start() {
 				}
 				elapsed := time.Now().Sub(timer)
 				if elapsed >= 30*time.Second {
-					log.Debug("%s, Recv an audio RTP package", session)
+					log.Debugf("%s, Recv an audio RTP package", session.String())
 					timer = time.Now()
 				}
 			case session.aRTPControlChannel[0]:
@@ -276,7 +277,7 @@ func (session *Session) Start() {
 				continue
 			}
 			if pack == nil {
-				log.Errorf("[%s] get nil packet", session, pack.Type)
+				log.Errorf("[%s] get nil packet", session.String())
 				continue
 			}
 			session.InBytes += uint(rtpLen) + 4
@@ -397,6 +398,7 @@ func (session *Session) handleRequest(req *Request) {
 			log.Errorf("[%s] handleRequest err ocurs:%v", session, p)
 			res.StatusCode = 500
 			res.Status = fmt.Sprintf("Internal Server Error")
+			debug.PrintStack()
 		}
 		log.Debugf(">>>\n%s", res)
 		outBytes := []byte(res.String())

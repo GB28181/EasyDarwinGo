@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/rtsp/record"
-
 	"github.com/EasyDarwin/EasyDarwin/models"
+	"github.com/EasyDarwin/EasyDarwin/record"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
 	"github.com/EasyDarwin/EasyDarwin/utils"

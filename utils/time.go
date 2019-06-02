@@ -15,6 +15,8 @@ const (
 	TimestampLayout = "20060102150405"
 )
 
+var ZeroTime time.Time
+
 var StartTime = time.Now()
 
 func (dt *DateTime) UnmarshalJSON(data []byte) (err error) {

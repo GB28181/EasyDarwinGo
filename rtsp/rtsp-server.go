@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+// OnGetPusherHandle calls when server was called GetPusher(path)
+type OnGetPusherHandle func(_ *Server, path string, _ Pusher) Pusher
+
+// Server of RTSP
 type Server struct {
 	TCPListener    *net.TCPListener
 	TCPPort        int
@@ -16,8 +20,11 @@ type Server struct {
 	playersLock    sync.RWMutex
 	addPusherCh    chan Pusher
 	removePusherCh chan Pusher
+	// Hooks
+	onGetPusherHandles []OnGetPusherHandle
 }
 
+// Instance of RTSP server
 var Instance *Server
 
 func initServer() error {
@@ -133,6 +140,7 @@ func (server *Server) AddPusher(pusher Pusher, closeOld bool) bool {
 	return added
 }
 
+// RemovePusher from RTSP server
 func (server *Server) RemovePusher(pusher Pusher) {
 	removed := false
 	server.pushersLock.Lock()
@@ -147,11 +155,22 @@ func (server *Server) RemovePusher(pusher Pusher) {
 	}
 }
 
+// AddOnGetPusherHandle to RTSP server
+func (server *Server) AddOnGetPusherHandle(handle OnGetPusherHandle) {
+	// TODO: handle state change func like windows message
+	server.onGetPusherHandles = append(server.onGetPusherHandles, handle)
+}
+
 // GetPusher according to path of request
 func (server *Server) GetPusher(path string) (pusher Pusher) {
 	server.pushersLock.RLock()
 	pusher = server.pushers[path]
 	server.pushersLock.RUnlock()
+
+	for _, handle := range server.onGetPusherHandles {
+		pusher = handle(server, path, pusher)
+	}
+
 	return
 }
 
