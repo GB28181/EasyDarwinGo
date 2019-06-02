@@ -24,7 +24,7 @@ func (h *APIHandler) StartRecord(c *gin.Context) {
 		return
 	}
 
-	pusher := rtsp.Instance.GetPusher(req.PlayPath)
+	pusher := rtsp.Instance.GetPusher(req.PlayPath, nil)
 	if nil == pusher {
 		c.IndentedJSON(200, &StartRecordResponse{
 			Code: 404,

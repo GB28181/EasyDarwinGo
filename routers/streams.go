@@ -65,7 +65,7 @@ func (h *APIHandler) StreamStart(c *gin.Context) {
 	}
 
 	pusher := rtsp.NewClientPusher(client)
-	if rtsp.GetServer().GetPusher(pusher.Path()) != nil {
+	if rtsp.GetServer().GetPusher(pusher.Path(), nil) != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, fmt.Sprintf("Path %s already exists", client.Path))
 		return
 	}

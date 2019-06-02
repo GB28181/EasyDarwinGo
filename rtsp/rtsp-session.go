@@ -504,7 +504,7 @@ func (session *Session) handleRequest(req *Request) {
 			return
 		}
 		session.Path = url.Path
-		pusher := session.Server.GetPusher(session.Path)
+		pusher := session.Server.GetPusher(session.Path, session)
 		if pusher == nil {
 			res.StatusCode = 404
 			res.Status = "NOT FOUND"

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -145,7 +146,7 @@ func (p *program) Start(s service.Service) (err error) {
 				client.CustomPath = v.CustomPath
 
 				pusher := rtsp.NewClientPusher(client)
-				if rtsp.GetServer().GetPusher(pusher.Path()) != nil {
+				if rtsp.GetServer().GetPusher(pusher.Path(), nil) != nil {
 					continue
 				}
 				err = client.Start(time.Duration(v.IdleTimeout) * time.Second)
@@ -169,7 +170,7 @@ func (p *program) Start(s service.Service) (err error) {
 			for _, task := range tasks {
 				log.Print(task.String())
 				// TODO: More safe pusher.AddPlayer
-				pusher := rtsp.Instance.GetPusher(task.PlayPath)
+				pusher := rtsp.Instance.GetPusher(task.PlayPath, nil)
 				if nil == pusher {
 					continue
 				}
@@ -210,6 +211,7 @@ func main() {
 	tail := flag.Args()
 
 	// log
+	log.SetOutput(os.Stdout)
 	log.SetPrefix("[EasyDarwin] ")
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 

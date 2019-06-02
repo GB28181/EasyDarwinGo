@@ -32,7 +32,7 @@ func initLog() error {
 	*/
 	case "debug":
 		log.SetLevel(logrus.DebugLevel)
-		log.SetOutput(os.Stderr)
+		log.SetOutput(os.Stdout)
 	case "info":
 		setNull()
 		log.SetLevel(logrus.InfoLevel)

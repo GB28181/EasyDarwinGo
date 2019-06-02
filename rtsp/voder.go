@@ -17,7 +17,11 @@ type _VODState int
 
 // PusherMode constants
 const (
-	_VODStateRun _VODState = iota
+	// After NewVOD
+	_VODStateInit _VODState = iota
+	// After go vod.Start() is called, start read block
+	_VODStateRun
+	// After vod.Stop() is called
 	_VODStateStop
 )
 
@@ -59,7 +63,7 @@ type VOD struct {
 }
 
 type vodCommand interface {
-	Do()
+	Do() error
 }
 
 // NewVOD returns
@@ -74,7 +78,7 @@ func NewVOD(server *Server, ID string, path string, startBlock *record.Block) (_
 		scale: 0,
 
 		startBlock: startBlock,
-		state:      _VODStateRun,
+		state:      _VODStateInit,
 
 		_AControl: []string{"not set up audio 01", "not set up audio 02"},
 		_ACodec:   []string{"invalid codec", "invalid codec"},
@@ -147,7 +151,10 @@ func (vod *VOD) Mode() PusherMode {
 
 // Start VOD action
 func (vod *VOD) Start() {
+	// Like the fist cmd
 	vod.start()
+
+	vod.state = _VODStateRun
 
 	for cmd := range vod.messageChannel {
 		cmd.Do()
@@ -156,7 +163,8 @@ func (vod *VOD) Start() {
 
 func (vod *VOD) resetTimer() {
 	vod.baseStart = time.Now()
-	vod.baseDuration = 0
+	// pre send 500 ms video data
+	vod.baseDuration = 500 * time.Millisecond // TODO: config it!
 	vod.sendDuration = nil
 	vod.handleRTPPacket = vod.findFirstVideoRTPPacket
 	vod.ticker = time.NewTicker(40 * time.Millisecond)
@@ -165,30 +173,25 @@ func (vod *VOD) resetTimer() {
 func (vod *VOD) start() {
 	vod.resetTimer()
 
+	vod.stopWaitGroup.Add(3)
 	go vod.readBlockLoop()
 	go vod.sendControlLoop()
 	go vod.brocastLoop()
 }
 
 func (vod *VOD) readBlockLoop() {
-	vod.stopWaitGroup.Add(1)
-	defer vod.stopWaitGroup.Done()
+	defer func() {
+		close(vod.blockChannel)
+		for _ = range vod.blockChannel {
+			// speed up the close signal  to pick frame loop
+		}
+		vod.stopWaitGroup.Done()
+		log.WithField("id", vod.ID()).Debug("vod.readBlockLoop exit")
+	}()
 
 	block := vod.startBlock
 	blockInfo := *block
 	for {
-		select {
-		case <-vod.stopChannel:
-			log.WithField("ID", vod.ID()).Info("VOD read block loop stop")
-			// trigger close pick frame loop
-			close(vod.blockChannel)
-			for _ = range vod.blockChannel {
-				// speed up the close signal  to pick frame loop
-			}
-			return
-		default:
-		}
-
 		// ReadBlockInfo
 		{
 			err := record.GetBlockByID(&blockInfo)
@@ -221,8 +224,12 @@ func (vod *VOD) readBlockLoop() {
 		}
 
 		// Send block Data
-		vod.blockChannel <- block
-		block = nil // hand over block
+		select {
+		case <-vod.stopChannel:
+			return
+		case vod.blockChannel <- block:
+			block = nil // hand over block
+		}
 	}
 }
 
@@ -298,10 +305,12 @@ func (vod *VOD) updateBaseDurationOrParameter() {
 }
 
 func (vod *VOD) sendControlLoop() {
-	vod.stopWaitGroup.Add(1)
-	defer vod.stopWaitGroup.Done()
-	// exit send loop
-	defer close(vod.queue)
+	defer func() {
+		// exit send loop
+		close(vod.queue)
+		vod.stopWaitGroup.Done()
+		log.WithField("id", vod.ID()).Debug("vod.sendControlLoop exit")
+	}()
 
 	var packet *RTPPack
 	var info *RTPInfo
@@ -346,8 +355,10 @@ func (vod *VOD) sendControlLoop() {
 
 // brocastLoop to players
 func (vod *VOD) brocastLoop() {
-	vod.stopWaitGroup.Add(1)
-	defer vod.stopWaitGroup.Done()
+	defer func() {
+		vod.stopWaitGroup.Done()
+		log.WithField("id", vod.ID()).Debug("vod.brocastLoop exit")
+	}()
 
 	for packet := range vod.queue {
 		vod.defaultPusher.BroadcastRTP(packet)
@@ -365,9 +376,10 @@ func (vod *VOD) QueueRTP(pack *RTPPack) {
 
 type vodCommandStop struct{ *VOD }
 
-func (cmd *vodCommandStop) Do() {
+func (cmd *vodCommandStop) Do() error {
 	if cmd.VOD.state != _VODStateRun {
-		return
+		log.WithField("state", cmd.VOD.state).Warn("Not usual state when VOD stop")
+		return nil
 	}
 
 	// Stop message loop
@@ -380,12 +392,15 @@ func (cmd *vodCommandStop) Do() {
 		log.Warn("VOD.Stop may be called twice")
 	}
 	cmd.VOD.stopWaitGroup.Wait()
+	log.WithField("id", cmd.VOD.ID()).Debug("All vod loop closed")
 
 	cmd.VOD.state = _VODStateStop
 
 	for _, h := range cmd.VOD.StopHandles {
 		h()
 	}
+
+	return nil
 }
 
 // AddOnStopHandle of VOD
@@ -424,8 +439,30 @@ func (vod *VOD) SDPRaw() string {
 	return vod._SDPRaw
 }
 
-func getVOD(server *Server, path string, pusher Pusher) Pusher {
+// RemovePlayer when it is zero, stop VOD
+func (vod *VOD) RemovePlayer(player Player) {
+	vod.defaultPusher.playersLocker.Lock()
+	vod.defaultPusher.players = vod.defaultPusher.players.Delete(player.ID())
+	left := vod.defaultPusher.players.Len()
+	vod.defaultPusher.playersLocker.Unlock()
+
+	if 0 == left {
+		vod.Stop()
+	}
+}
+
+func (vod *VOD) stopIfNonePlayer() {
+	if 0 == vod.GetPlayers().Len() {
+		vod.Stop()
+	}
+}
+
+func getVOD(server *Server, session *Session, path string, pusher Pusher) Pusher {
 	if nil != pusher {
+		return pusher
+	}
+	if nil == session {
+		// VOD must bind the first session for lifecycle
 		return pusher
 	}
 	// /vod/[taskID]/[executeID]/[startTime(in second)]/[VODID]
@@ -483,9 +520,11 @@ func getVOD(server *Server, path string, pusher Pusher) Pusher {
 	}
 
 	// IMPORTANT: Add vod to server, unlike the RTSP real pusher added in rtsp-session
-	if !server.AddPusher(vod, false) {
+	if server.AddPusher(vod, false) {
+		session.StopHandles = append(session.StopHandles, vod.stopIfNonePlayer)
+	} else {
 		// Maybe there is a same name RTSP vod request at same time, return it
-		if samePusher := server.GetPusher(path); nil != samePusher {
+		if samePusher := server.GetPusher(path, nil); nil != samePusher {
 			return samePusher
 		} else {
 			log.WithField("path", path).Warn("Add VOD to server's pusher pool fail")

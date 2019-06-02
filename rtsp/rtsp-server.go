@@ -7,7 +7,7 @@ import (
 )
 
 // OnGetPusherHandle calls when server was called GetPusher(path)
-type OnGetPusherHandle func(_ *Server, path string, _ Pusher) Pusher
+type OnGetPusherHandle func(_ *Server, _ *Session, path string, _ Pusher) Pusher
 
 // Server of RTSP
 type Server struct {
@@ -162,13 +162,14 @@ func (server *Server) AddOnGetPusherHandle(handle OnGetPusherHandle) {
 }
 
 // GetPusher according to path of request
-func (server *Server) GetPusher(path string) (pusher Pusher) {
+// pass session for dynamic create pusher lifecycle or other necessary reseaons
+func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
 	server.pushersLock.RLock()
 	pusher = server.pushers[path]
 	server.pushersLock.RUnlock()
 
 	for _, handle := range server.onGetPusherHandles {
-		pusher = handle(server, path, pusher)
+		pusher = handle(server, session, path, pusher)
 	}
 
 	return
