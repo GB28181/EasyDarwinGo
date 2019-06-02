@@ -20,3 +20,6 @@ Unnamed
 dev.ini
 debug
 debug.ini
+.hg
+.hgignore
+
