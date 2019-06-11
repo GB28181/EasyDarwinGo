@@ -132,27 +132,31 @@ func (storage *Storage) storeBlock() {
 		}
 		// open block file
 		blockPath := filepath.Join(dirPath, pathes[len(pathes)-1])
-		blockFile, err := directio.OpenFile(blockPath, os.O_WRONLY|os.O_CREATE, os.ModePerm)
-		if nil != err {
-			log.WithField("error", err).Error("Openfile of block")
-			continue
-		}
-		// write block
-		l, err := blockFile.Write(block.Data)
-		if nil != err {
-			log.WithField("error", err).Error("Write of block")
-			continue
-		}
-		if len(block.Data) != l {
-			log.WithFields(logrus.Fields{
-				"actual length": l,
-				"want length":   len(block.Data),
-			}).Error("Write of block")
+		{
+			blockFile, err := directio.OpenFile(blockPath, os.O_WRONLY|os.O_CREATE, os.ModePerm)
+			if nil != err {
+				log.WithField("error", err).Error("Openfile of block")
+				continue
+			}
+			defer blockFile.Close()
+			// write block
+			l, err := blockFile.Write(block.Data)
+			if nil != err {
+				log.WithField("error", err).Error("Write of block")
+				continue
+			}
+
+			if len(block.Data) != l {
+				log.WithFields(logrus.Fields{
+					"actual length": l,
+					"want length":   len(block.Data),
+				}).Error("Write of block")
+				continue
+			}
 		}
 
 		block.Path = blockPath
 
-		// TODO: store index
 		if err = AddBlockIndex(block); nil != err {
 			log.WithField("error", err).Error("Add store index")
 			continue

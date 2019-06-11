@@ -21,6 +21,8 @@ type defaultPusher struct {
 
 func newDefaultPusher(server *Server) *defaultPusher {
 	return &defaultPusher{
+		server: server,
+
 		players:       immutable.NewMap(nil),
 		playersLocker: &utils.SpinLock{},
 	}

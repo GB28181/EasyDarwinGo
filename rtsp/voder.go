@@ -112,7 +112,13 @@ func NewVOD(server *Server, ID string, path string, startBlock *record.Block) (_
 		}
 	}
 
+	vod.AddOnStopHandle(vod.removeFromServer)
+
 	return vod, nil
+}
+
+func (vod *VOD) removeFromServer() {
+	vod.defaultPusher.server.RemovePusher(vod)
 }
 
 // ID of VOD for user control
