@@ -2,7 +2,7 @@ package routers
 
 import (
 	"fmt"
-	"log"
+
 	"net/http"
 	"runtime"
 	"strings"
@@ -49,7 +49,10 @@ func init() {
 				cpuData = append(cpuData, PercentData{Time: now, Used: cpu[0] / 100})
 				pusherData = append(pusherData, CountData{Time: now, Total: uint(rtsp.Instance.GetPusherSize())})
 				playerCnt := 0
-				for _, pusher := range rtsp.Instance.GetPushers() {
+				for it := rtsp.Instance.GetPushers().Iterator(); !it.Done(); {
+					_, _pusher := it.Next()
+					pusher := _pusher.(rtsp.Pusher)
+
 					playerCnt += pusher.GetPlayers().Len()
 				}
 				playerData = append(playerData, CountData{Time: now, Total: uint(playerCnt)})

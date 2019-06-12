@@ -11,11 +11,6 @@ func init() {
 		panic(err)
 	}
 
-	err = initDB()
-	if nil != err {
-		panic(err)
-	}
-
 	err = initBlockPool()
 	if nil != err {
 		panic(err)

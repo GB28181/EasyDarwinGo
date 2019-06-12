@@ -8,11 +8,12 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/record"
 )
 
 type _Recorder struct {
-	taskExecute *record.TaskExecute
+	taskExecute *models.TaskExecute
 	pusher      Pusher
 	queue       chan *RTPPack
 	// hook and state
@@ -22,13 +23,13 @@ type _Recorder struct {
 	outBytes    uint
 	startTime   time.Time
 	// storage
-	block       *record.Block
+	block       *models.Block
 	blockBuffer *bytes.Buffer
 }
 
 // NewRecorder get data from pushers
-func NewRecorder(task *record.Task, pusher Pusher) (Player, error) {
-	taskExecute, err := record.ExecuteTask(task, pusher.SDPRaw())
+func NewRecorder(task *models.Task, pusher Pusher) (Player, error) {
+	taskExecute, err := models.ExecuteTask(task, pusher.SDPRaw())
 	if nil != err {
 		return nil, err
 	}
@@ -131,7 +132,7 @@ func (recorder *_Recorder) handleRTPPacket(pack *RTPPack) {
 	// write block size in first 4 bytes
 	binary.LittleEndian.PutUint32(recorder.block.Data, uint32(recorder.blockBuffer.Len()))
 
-	if err := recorder.taskExecute.InsertBlock(recorder.block); nil != err {
+	if err := record.InsertBlock(recorder.taskExecute, recorder.block); nil != err {
 		log.WithFields(logrus.Fields{
 			"error": err,
 			"ID":    recorder.ID(),

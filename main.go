@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/record"
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
 	"github.com/EasyDarwin/EasyDarwin/utils"
@@ -123,8 +123,8 @@ func (p *program) Start(s service.Service) (err error) {
 	go func() {
 		log.Printf("demon pull streams")
 		for {
-			var streams []*rtsp.Stream
-			streams, err := rtsp.GetAllStream()
+			var streams []*models.Stream
+			streams, err := models.GetAllStream()
 			if err != nil {
 				log.Printf("find stream err:%v", err)
 				time.Sleep(10 * time.Second)
@@ -164,7 +164,7 @@ func (p *program) Start(s service.Service) (err error) {
 	go func() {
 		log.Printf("demon pull recorders")
 		for {
-			tasks := record.GetAllTasks()
+			tasks := models.GetAllTasks()
 			for _, task := range tasks {
 				log.Print(task.String())
 				// TODO: More safe pusher.AddPlayer

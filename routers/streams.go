@@ -2,11 +2,11 @@ package routers
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -82,7 +82,7 @@ func (h *APIHandler) StreamStart(c *gin.Context) {
 	log.Printf("Pull to push %v success ", form)
 	rtsp.GetServer().AddPusher(pusher, false)
 	// save to db.
-	stream := rtsp.Stream{
+	stream := models.Stream{
 		ID:                client.ID,
 		URL:               form.URL,
 		CustomPath:        form.CustomPath,
@@ -90,7 +90,7 @@ func (h *APIHandler) StreamStart(c *gin.Context) {
 		HeartbeatInterval: form.HeartbeatInterval,
 	}
 
-	err = rtsp.AddStream(&stream)
+	err = models.AddStream(&stream)
 	if err != nil {
 		pusher.Stop()
 		log.Printf("Pull stream err :%v", err)
@@ -119,19 +119,19 @@ func (h *APIHandler) StreamStop(c *gin.Context) {
 		return
 	}
 	pushers := rtsp.GetServer().GetPushers()
-	for _, v := range pushers {
-		if v.ID() == form.ID {
-			// Remove first, in case of restart according to DB
-			if v.Mode() == rtsp.PusherModePull {
-				rtsp.RemoveStream(v.ID())
-			}
-			// TODO: forbidden ID to restart in a while,
-			// or pause restart , remove from DB and stop it.
-			v.Stop()
-			c.IndentedJSON(200, "OK")
-			log.Printf("Stop %v success ", v)
-			return
+	_pusher, ok := pushers.Get(form.ID)
+	if ok {
+		pusher := _pusher.(rtsp.Pusher)
+		// Remove first, in case of restart according to DB
+		if pusher.Mode() == rtsp.PusherModePull {
+			models.RemoveStream(pusher.ID())
 		}
+		// TODO: forbidden ID to restart in a while,
+		// or pause restart , remove from DB and stop it.
+		c.IndentedJSON(200, "OK")
+		log.Printf("Stop %s success ", pusher.ID())
+		return
+
 	}
 	c.AbortWithStatusJSON(http.StatusNotFound, fmt.Sprintf("Pusher[%s] not found", form.ID))
 }

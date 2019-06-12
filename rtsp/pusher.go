@@ -23,6 +23,7 @@ const (
 // Pusher of RTSP server
 type Pusher interface {
 	// Info
+	// ID must always be valid andd not changed
 	ID() string
 	Path() string
 	Source() string
@@ -215,7 +216,7 @@ func NewClientPusher(client *RTSPClient) Pusher {
 	client.RTPHandles = append(client.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
-		pusher.Server().RemovePusher(pusher)
+		pusher.Server().RemovePusher(pusher.ID())
 	})
 
 	return pusher
@@ -236,7 +237,7 @@ func NewPusher(session *Session) Pusher {
 	session.RTPHandles = append(session.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
-		pusher.Server().RemovePusher(pusher)
+		pusher.Server().RemovePusher(pusher.ID())
 	})
 
 	return pusher

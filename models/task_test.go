@@ -1,4 +1,4 @@
-package record_test
+package models_test
 
 import (
 	"testing"

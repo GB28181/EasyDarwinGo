@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"sync"
+
+	"github.com/benbjohnson/immutable"
 )
 
 // OnGetPusherHandle calls when server was called GetPusher(path)
@@ -14,14 +16,16 @@ type Server struct {
 	TCPListener    *net.TCPListener
 	TCPPort        int
 	Stoped         bool
-	pushers        map[string]Pusher // Path <-> Pusher
-	pushersLock    sync.RWMutex
 	players        map[string]Player
 	playersLock    sync.RWMutex
 	addPusherCh    chan Pusher
 	removePusherCh chan Pusher
 	// Hooks
 	onGetPusherHandles []OnGetPusherHandle
+	// Pushers
+	pushers              *immutable.Map
+	getPushers           chan *immutable.Map
+	pusherCommandChannel chan func()
 }
 
 // Instance of RTSP server
@@ -31,14 +35,15 @@ func initServer() error {
 	Instance = &Server{
 		Stoped:         true,
 		TCPPort:        config.RTSP.Port,
-		pushers:        make(map[string]Pusher),
 		addPusherCh:    make(chan Pusher),
 		removePusherCh: make(chan Pusher),
+		// pushers will init when start to make sure a clean start
 	}
 
 	return nil
 }
 
+// GetServer of RTSP
 func GetServer() *Server {
 	return Instance
 }
@@ -58,6 +63,41 @@ func (server *Server) pusherHooks() {
 	}
 }
 
+func (server *Server) pusherLoop() {
+
+	for {
+		select {
+		case do, ok := <-server.pusherCommandChannel:
+			if ok {
+				do()
+				for _ = range server.getPushers {
+				}
+			} else {
+				return
+			}
+		case server.getPushers <- server.pushers:
+		}
+	}
+}
+
+func (server *Server) initPushers() {
+	server.pushers = immutable.NewMap(nil)
+	server.getPushers = make(chan *immutable.Map, 16)
+	server.pusherCommandChannel = make(chan func(), 16)
+
+	go server.pusherLoop()
+}
+
+func (server *Server) _finishPushers() {
+	// TODO: stop all pushers
+	close(server.pusherCommandChannel)
+	server.pushers = immutable.NewMap(nil)
+}
+
+func (server *Server) finishPushers() {
+	server.pusherCommandChannel <- server._finishPushers
+}
+
 func (server *Server) Start() (err error) {
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", server.TCPPort))
 	if err != nil {
@@ -69,6 +109,7 @@ func (server *Server) Start() (err error) {
 	}
 
 	go server.pusherHooks()
+	server.initPushers()
 
 	server.Stoped = false
 	server.TCPListener = listener
@@ -97,6 +138,7 @@ func (server *Server) Start() (err error) {
 	return
 }
 
+// Stop RTSP server
 func (server *Server) Stop() {
 	log.Infof("rtsp server stop on %d", server.TCPPort)
 	server.Stoped = true
@@ -104,55 +146,85 @@ func (server *Server) Stop() {
 		server.TCPListener.Close()
 		server.TCPListener = nil
 	}
-	server.pushersLock.Lock()
-	server.pushers = make(map[string]Pusher)
-	server.pushersLock.Unlock()
+	server.finishPushers()
 
 	close(server.addPusherCh)
 	close(server.removePusherCh)
 }
 
-func (server *Server) AddPusher(pusher Pusher, closeOld bool) bool {
+type serverAddPusherCommand struct {
+	server   *Server
+	pusher   Pusher
+	closeOld bool
+	result   chan bool
+}
+
+func (c *serverAddPusherCommand) Do() {
 	added := false
-	server.pushersLock.Lock()
-	old, ok := server.pushers[pusher.Path()]
-	if !ok {
-		server.pushers[pusher.Path()] = pusher
-		log.Infof("%v start, now pusher size[%d]", pusher, len(server.pushers))
+
+	_old, existOld := c.server.pushers.Get(c.pusher.Path())
+	oldPusher, _ := _old.(Pusher)
+
+	if !existOld || c.closeOld {
+		c.server.pushers = c.server.pushers.Set(c.pusher.Path(), c.pusher)
 		added = true
-	} else {
-		if closeOld {
-			server.pushers[pusher.Path()] = pusher
-			log.Infof("%v start, replace old pusher", pusher)
-			added = true
-		}
+		log.Infof("pusher %s added, now pusher size[%d]", c.pusher.ID(), c.server.pushers.Len())
 	}
-	server.pushersLock.Unlock()
-	if ok && closeOld {
-		log.Infof("old pusher %v stoped", pusher)
-		old.Stop()
-		server.removePusherCh <- old
+
+	if existOld && c.closeOld {
+		go oldPusher.Stop()
 	}
+
 	if added {
-		go pusher.Start()
-		server.addPusherCh <- pusher
+		go c.pusher.Start()
 	}
-	return added
+
+	c.result <- added
+}
+
+// AddPusher to Server
+func (server *Server) AddPusher(pusher Pusher, closeOld bool) bool {
+	cmd := &serverAddPusherCommand{
+		server:   server,
+		pusher:   pusher,
+		closeOld: closeOld,
+		result:   make(chan bool, 1),
+	}
+
+	server.pusherCommandChannel <- cmd.Do
+
+	return <-cmd.result
+}
+
+type serverRemovePusherCommmand struct {
+	server *Server
+	ID     string
+	result chan int
+}
+
+func (c *serverRemovePusherCommmand) Do() {
+	_pusher, exist := c.server.pushers.Get(c.ID)
+	if exist {
+		c.server.pushers = c.server.pushers.Delete(c.ID)
+		log.Infof("pusher [%s] removed, now pusher size[%d]\n", c.ID, c.server.pushers.Len())
+
+		go _pusher.(Pusher).Stop()
+	}
+
+	c.result <- 1
 }
 
 // RemovePusher from RTSP server
-func (server *Server) RemovePusher(pusher Pusher) {
-	removed := false
-	server.pushersLock.Lock()
-	if _pusher, ok := server.pushers[pusher.Path()]; ok && pusher.ID() == _pusher.ID() {
-		delete(server.pushers, pusher.Path())
-		log.Infof("%v end, now pusher size[%d]\n", pusher, len(server.pushers))
-		removed = true
+func (server *Server) RemovePusher(ID string) {
+	cmd := &serverRemovePusherCommmand{
+		server: server,
+		ID:     ID,
+		result: make(chan int, 1),
 	}
-	server.pushersLock.Unlock()
-	if removed {
-		server.removePusherCh <- pusher
-	}
+
+	server.pusherCommandChannel <- cmd.Do
+
+	<-cmd.result
 }
 
 // AddOnGetPusherHandle to RTSP server
@@ -164,9 +236,10 @@ func (server *Server) AddOnGetPusherHandle(handle OnGetPusherHandle) {
 // GetPusher according to path of request
 // pass session for dynamic create pusher lifecycle or other necessary reseaons
 func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
-	server.pushersLock.RLock()
-	pusher = server.pushers[path]
-	server.pushersLock.RUnlock()
+	_pusher, ok := server.GetPushers().Get(path)
+	if ok {
+		pusher = _pusher.(Pusher)
+	}
 
 	for _, handle := range server.onGetPusherHandles {
 		pusher = handle(server, session, path, pusher)
@@ -175,19 +248,12 @@ func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
 	return
 }
 
-func (server *Server) GetPushers() (pushers map[string]Pusher) {
-	pushers = make(map[string]Pusher)
-	server.pushersLock.RLock()
-	for k, v := range server.pushers {
-		pushers[k] = v
-	}
-	server.pushersLock.RUnlock()
-	return
+// GetPushers from RTSP server
+func (server *Server) GetPushers() *immutable.Map {
+	return <-server.getPushers
 }
 
-func (server *Server) GetPusherSize() (size int) {
-	server.pushersLock.RLock()
-	size = len(server.pushers)
-	server.pushersLock.RUnlock()
-	return
+// GetPusherSize from RTSP server
+func (server *Server) GetPusherSize() int {
+	return server.GetPushers().Len()
 }

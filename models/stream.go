@@ -1,4 +1,4 @@
-package rtsp
+package models
 
 import proto "github.com/golang/protobuf/proto"
 

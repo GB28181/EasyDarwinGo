@@ -50,8 +50,11 @@ func (h *APIHandler) Pushers(c *gin.Context) {
 
 	hostname := utils.GetRequestHostname(c.Request)
 
-	pushers := make([]interface{}, 0)
-	for _, pusher := range rtsp.Instance.GetPushers() {
+	stats := make([]interface{}, 0)
+	for it := rtsp.Instance.GetPushers().Iterator(); !it.Done(); {
+		_, _pusher := it.Next()
+		pusher := _pusher.(rtsp.Pusher)
+
 		port := pusher.Server().TCPPort
 		rtsp := fmt.Sprintf("rtsp://%s:%d%s", hostname, port, pusher.Path())
 		if port == 554 {
@@ -60,7 +63,7 @@ func (h *APIHandler) Pushers(c *gin.Context) {
 		if form.Q != "" && !strings.Contains(strings.ToLower(rtsp), strings.ToLower(form.Q)) {
 			continue
 		}
-		pushers = append(pushers, map[string]interface{}{
+		stats = append(stats, map[string]interface{}{
 			"id":        pusher.ID(),
 			"url":       rtsp,
 			"path":      pusher.Path(),
@@ -72,7 +75,7 @@ func (h *APIHandler) Pushers(c *gin.Context) {
 			"onlines":   pusher.GetPlayers().Len(),
 		})
 	}
-	pr := NewPageResponse(pushers)
+	pr := NewPageResponse(stats)
 	if form.Sort != "" {
 		pr.Sort(form.Sort, form.Order)
 	}
@@ -104,7 +107,10 @@ func (h *APIHandler) Players(c *gin.Context) {
 		return
 	}
 	players := make([]rtsp.Player, 0)
-	for _, pusher := range rtsp.Instance.GetPushers() {
+	for it := rtsp.Instance.GetPushers().Iterator(); !it.Done(); {
+		_, _pusher := it.Next()
+		pusher := _pusher.(rtsp.Pusher)
+
 		_players := pusher.GetPlayers()
 		for itPlayer := _players.Iterator(); !itPlayer.Done(); {
 			_, _player := itPlayer.Next()

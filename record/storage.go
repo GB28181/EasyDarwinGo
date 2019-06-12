@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/ncw/directio"
 
 	"github.com/sirupsen/logrus"
@@ -16,19 +17,19 @@ import (
 // Storage impl in file
 type Storage struct {
 	currentPathChannel chan string
-	writeQueue         chan *Block
+	writeQueue         chan *models.Block
 }
 
-var storage *Storage
+var defaultStorage *Storage
 
 func initStorage() error {
-	storage = &Storage{
+	defaultStorage = &Storage{
 		currentPathChannel: make(chan string, 1),
-		writeQueue:         make(chan *Block, config.Record.WriteQueueLength),
+		writeQueue:         make(chan *models.Block, config.Record.WriteQueueLength),
 	}
 
-	go storage.putStoragePath()
-	go storage.storeBlock()
+	go defaultStorage.putStoragePath()
+	go defaultStorage.storeBlock()
 
 	return nil
 }
@@ -94,9 +95,22 @@ func (storage *Storage) putStoragePath() {
 	}
 }
 
-func (storage *Storage) insertBlock(block *Block) error {
+// InsertBlock into default storage
+func InsertBlock(te *models.TaskExecute, block *models.Block) error {
+	// generate block ID
+	blockID, err := te.GenerateBlockID()
+	if nil != err {
+		return err
+	}
+
+	// update TaskExecute state
+	te.EndTime = block.EndTime
+
+	block.ID = blockID
+	block.TaskExecute = te
+
 	select {
-	case storage.writeQueue <- block:
+	case defaultStorage.writeQueue <- block:
 		return nil
 	default:
 		log.Error("Stroage write queue full")
@@ -105,7 +119,7 @@ func (storage *Storage) insertBlock(block *Block) error {
 	return nil
 }
 
-func blockPathes(rootPath string, block *Block) []string {
+func blockPathes(rootPath string, block *models.Block) []string {
 	bytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(bytes, uint64(block.ID))
 	dirs := make([]string, 11)
@@ -157,11 +171,11 @@ func (storage *Storage) storeBlock() {
 
 		block.Path = blockPath
 
-		if err = AddBlockIndex(block); nil != err {
+		if err = models.AddBlockIndex(block); nil != err {
 			log.WithField("error", err).Error("Add store index")
 			continue
 		}
-		if UpdateExecuteTaskEndTime(block.TaskExecute, block.EndTime); nil != err {
+		if models.UpdateExecuteTaskEndTime(block.TaskExecute, block.EndTime); nil != err {
 			log.WithField("error", err).Error("Add store index")
 			continue
 		}
@@ -172,7 +186,7 @@ func (storage *Storage) storeBlock() {
 }
 
 // ReadBlockData from storage
-func ReadBlockData(block *Block) error {
+func ReadBlockData(block *models.Block) error {
 	file, err := directio.OpenFile(block.Path, os.O_RDONLY, os.ModePerm)
 	if nil != err {
 		return err

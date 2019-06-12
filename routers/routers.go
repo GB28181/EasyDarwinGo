@@ -2,7 +2,6 @@ package routers
 
 import (
 	"fmt"
-	"log"
 	"mime"
 	"net/http"
 

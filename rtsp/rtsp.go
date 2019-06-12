@@ -13,11 +13,6 @@ func init() {
 		panic(err)
 	}
 
-	err = initDB()
-	if nil != err {
-		log.Panic(err)
-	}
-
 	err = initServer()
 	if nil != err {
 		log.Panic(err)

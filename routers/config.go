@@ -9,13 +9,18 @@ type ConfigHTTP struct {
 	DefaultPassword string `init:"default_password"`
 }
 
+type ConfigLog struct {
+	Level string `ini:"level"`
+}
+
 type Config struct {
 	HTTP ConfigHTTP `ini:"http"`
+	Log  ConfigLog  `ini:"log"`
 }
 
 var config *Config
 
-func init() {
+func initConfig() error {
 	config = &Config{
 		HTTP: ConfigHTTP{
 			Static:          "./www",
@@ -23,8 +28,9 @@ func init() {
 			DefaultUsername: "admin",
 			DefaultPassword: "admin",
 		},
+		Log: ConfigLog{
+			Level: "info",
+		},
 	}
-	if err := ini.MapTo(config, "./easydarwin.ini"); nil != err {
-		panic(err)
-	}
+	return ini.MapTo(config, "./easydarwin.ini")
 }

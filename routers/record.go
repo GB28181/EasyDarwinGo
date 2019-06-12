@@ -2,7 +2,6 @@ package routers
 
 import (
 	"github.com/EasyDarwin/EasyDarwin/models"
-	"github.com/EasyDarwin/EasyDarwin/record"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
 	"github.com/gin-gonic/gin"
 )
@@ -33,12 +32,12 @@ func (h *APIHandler) StartRecord(c *gin.Context) {
 		return
 	}
 
-	task := &record.Task{
+	task := &models.Task{
 		ID:       req.ID,
 		PlayPath: req.PlayPath,
 	}
 
-	err := record.AddTask(task)
+	err := models.AddTask(task)
 	if nil != err {
 		c.IndentedJSON(200, &StartRecordResponse{
 			Code: 400,
@@ -74,12 +73,12 @@ func (h *APIHandler) StartRecord(c *gin.Context) {
 type QueryRecordResponse struct {
 	Code int            `form:"code" json:"code"`
 	Msg  string         `form:"msg" json:"msg"`
-	Data []*record.Task `form:"data" json:"data"`
+	Data []*models.Task `form:"data" json:"data"`
 }
 
 // QueryRecord instance
 func (h *APIHandler) QueryRecord(c *gin.Context) {
-	tasks := record.GetAllTasks()
+	tasks := models.GetAllTasks()
 
 	c.IndentedJSON(200, &QueryRecordResponse{
 		Code: 0,

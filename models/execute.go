@@ -1,4 +1,4 @@
-package record
+package models
 
 import (
 	"fmt"
@@ -141,7 +141,8 @@ func (te *TaskExecute) getTaskExecuteBlockTimeKey() string {
 	return fmt.Sprintf("%s:%d:tebt", te.TaskID, te.ID)
 }
 
-func (te *TaskExecute) getBlockID() (int64, error) {
+// GenerateBlockID is continous and unique
+func (te *TaskExecute) GenerateBlockID() (int64, error) {
 	cmd := db.Incr(te.getTaskExecuteBlockIDKey())
 
 	if nil != cmd.Err() {
@@ -153,21 +154,4 @@ func (te *TaskExecute) getBlockID() (int64, error) {
 	}
 
 	return cmd.Val(), nil
-}
-
-// InsertBlock to storage
-func (te *TaskExecute) InsertBlock(block *Block) error {
-	// generate block ID
-	blockID, err := te.getBlockID()
-	if nil != err {
-		return err
-	}
-
-	// update TaskExecute state
-	te.EndTime = block.EndTime
-
-	block.ID = blockID
-	block.TaskExecute = te
-
-	return storage.insertBlock(block)
 }

@@ -1,5 +1,5 @@
 syntax = "proto3";
-package rtsp;
+package models;
 
 message Stream {
   string ID = 1;

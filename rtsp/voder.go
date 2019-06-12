@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/record"
 	"github.com/pixelbender/go-sdp/sdp"
 	"github.com/sirupsen/logrus"
@@ -31,7 +32,7 @@ type VOD struct {
 	_ID  string
 	path string
 	// state
-	startBlock      *record.Block
+	startBlock      *models.Block
 	state           _VODState
 	handleRTPPacket func(*RTPPack, *RTPInfo) (bool, error)
 	// base duration calc
@@ -54,7 +55,7 @@ type VOD struct {
 	// message loop
 	messageChannel chan vodCommand
 	// data flow
-	blockChannel chan *record.Block
+	blockChannel chan *models.Block
 	queue        chan *RTPPack
 	// stop
 	stopChannel   chan int
@@ -69,7 +70,7 @@ type vodCommand interface {
 // NewVOD returns
 // startBlock needs ID, executeID and taskID
 // TODO: when rtps.Session stop, stop VOD
-func NewVOD(server *Server, ID string, path string, startBlock *record.Block) (_ *VOD, err error) {
+func NewVOD(server *Server, ID string, path string, startBlock *models.Block) (_ *VOD, err error) {
 	vod := &VOD{
 		defaultPusher: newDefaultPusher(server),
 		_ID:           ID,
@@ -87,7 +88,7 @@ func NewVOD(server *Server, ID string, path string, startBlock *record.Block) (_
 		stopChannel:    make(chan int, 1),
 		stopWaitGroup:  &sync.WaitGroup{},
 
-		blockChannel: make(chan *record.Block, 1),
+		blockChannel: make(chan *models.Block, 1),
 		queue:        make(chan *RTPPack, config.Player.SendQueueLength),
 	}
 	// Get ready SDP
@@ -118,7 +119,7 @@ func NewVOD(server *Server, ID string, path string, startBlock *record.Block) (_
 }
 
 func (vod *VOD) removeFromServer() {
-	vod.defaultPusher.server.RemovePusher(vod)
+	vod.defaultPusher.server.RemovePusher(vod.ID())
 }
 
 // ID of VOD for user control
@@ -200,7 +201,7 @@ func (vod *VOD) readBlockLoop() {
 	for {
 		// ReadBlockInfo
 		{
-			err := record.GetBlockByID(&blockInfo)
+			err := models.GetBlockByID(&blockInfo)
 			if nil != err {
 				log.WithFields(logrus.Fields{
 					"ID":        block.ID,
@@ -239,7 +240,7 @@ func (vod *VOD) readBlockLoop() {
 	}
 }
 
-func makeupBlockData(block *record.Block) []byte {
+func makeupBlockData(block *models.Block) []byte {
 	blockHeader := block.Data[:BlockHeaderLen]
 	blockLen := binary.LittleEndian.Uint32(blockHeader)
 	return block.Data[BlockHeaderLen:blockLen]
@@ -502,18 +503,18 @@ func getVOD(server *Server, session *Session, path string, pusher Pusher) Pusher
 	VODID := parts[4]
 	// Get start block ans execute info
 	startBlock := record.NewEmptyBlock()
-	startBlock.TaskExecute = &record.TaskExecute{}
+	startBlock.TaskExecute = &models.TaskExecute{}
 	startBlock.TaskExecute.ID = executeID
 	startBlock.TaskExecute.TaskID = taskID
 
 	// NOTICE: gete block info first, it will cover execute info
-	err = record.GetBlockByTime(startBlock, startTime)
+	err = models.GetBlockByTime(startBlock, startTime)
 	if nil != err {
 		log.WithError(err).Error("VOD Get start block info")
 		return nil
 	}
 
-	err = record.GetExecuteTask(startBlock.TaskExecute)
+	err = models.GetExecuteTask(startBlock.TaskExecute)
 	if nil != err {
 		log.WithError(err).Error("VOD Get task execute info")
 		return nil

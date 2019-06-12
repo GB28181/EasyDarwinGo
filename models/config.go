@@ -1,38 +1,44 @@
 package models
 
-import (
-	"github.com/go-ini/ini"
-)
+import "github.com/go-ini/ini"
 
 type ConfigHTTP struct {
 	DefaultUsername string `ini:"default_username"`
 	DefaultPassword string `init:"default_password"`
 }
 
-type ConfigDatabase struct {
-	Type string `ini:"type"`
-	URL  string `ini:"url"`
+type ConfigLog struct {
+	Level string `ini:"level"`
+}
+
+type ConfigRedis struct {
+	Host     string `ini:"host"`
+	Password string `ini:"password"`
+	DB       int    `ini:"db"`
 }
 
 type Config struct {
-	HTTP     ConfigHTTP     `ini:"http"`
-	Database ConfigDatabase `ini:"database"`
+	HTTP  ConfigHTTP  `ini:"http"`
+	Redis ConfigRedis `ini:"redis"`
+	Log   ConfigLog   `ini:"log"`
 }
 
 var config *Config
 
-func init() {
+func initConfig() error {
 	config = &Config{
 		HTTP: ConfigHTTP{
 			DefaultUsername: "admin",
 			DefaultPassword: "admin",
 		},
-		Database: ConfigDatabase{
-			Type: "mysql",
-			URL:  "",
+		Redis: ConfigRedis{
+			Host:     "localhost:6379",
+			Password: "",
+			DB:       0,
+		},
+		Log: ConfigLog{
+			Level: "info",
 		},
 	}
-	if err := ini.MapTo(config, "./easydarwin.ini"); nil != err {
-		panic(err)
-	}
+	return ini.MapTo(config, "./easydarwin.ini")
 }

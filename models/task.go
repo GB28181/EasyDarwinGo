@@ -1,4 +1,4 @@
-package record
+package models
 
 import (
 	"fmt"
