@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/record"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
@@ -100,10 +99,7 @@ func (p *program) Start(s service.Service) (err error) {
 		err = fmt.Errorf("RTSP port[%d] In Use", p.rtspPort)
 		return
 	}
-	err = models.Init()
-	if err != nil {
-		return
-	}
+	// Init API server
 	err = routers.Init()
 	if err != nil {
 		return
@@ -127,8 +123,9 @@ func (p *program) Start(s service.Service) (err error) {
 	go func() {
 		log.Printf("demon pull streams")
 		for {
-			var streams []models.Stream
-			if err := models.DB.Find(&streams).Error; err != nil {
+			var streams []*rtsp.Stream
+			streams, err := rtsp.GetAllStream()
+			if err != nil {
 				log.Printf("find stream err:%v", err)
 				time.Sleep(10 * time.Second)
 				continue
@@ -139,7 +136,8 @@ func (p *program) Start(s service.Service) (err error) {
 				if routers.BuildDateTime != "" {
 					agent = fmt.Sprintf("%s(%s)", agent, routers.BuildDateTime)
 				}
-				client, err := rtsp.NewRTSPClient(rtsp.GetServer(), v.URL, int64(v.HeartbeatInterval)*1000, agent)
+				client, err := rtsp.NewRTSPClient(
+					rtsp.GetServer(), v.ID, v.URL, int64(v.HeartbeatInterval)*1000, agent)
 				if err != nil {
 					continue
 				}
@@ -200,7 +198,6 @@ func (p *program) Stop(s service.Service) (err error) {
 	// TODO: stop log
 	p.StopHTTP()
 	p.StopRTSP()
-	models.Close()
 	return
 }
 

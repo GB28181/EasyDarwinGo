@@ -9,4 +9,5 @@ var (
 	errorDecodeRTP    = errors.New("error when deocde RTP")
 	ErrorRTPTooShort  = errors.New("RTP packet is too short")
 	ErrorSDPMalformed = errors.New("SDP malformed")
+	ErrorDB           = errors.New("DB error")
 )

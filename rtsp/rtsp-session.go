@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/pixelbender/go-sdp/sdp"
 
 	"github.com/teris-io/shortid"
@@ -373,18 +372,16 @@ func CheckAuth(authLine string, method string, sessionNonce string) error {
 	} else {
 		return fmt.Errorf("CheckAuth error : uri not found")
 	}
-	var user models.User
-	err := models.DB.Where("Username = ?", username).First(&user).Error
-	if err != nil {
-		return fmt.Errorf("CheckAuth error : user not exists")
-	}
-	md5UserRealmPwd := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", username, realm, user.Password))))
+
+	// TODO: query user
+
+	md5UserRealmPwd := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", username, realm, "user.Password"))))
 	md5MethodURL := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s", method, uri))))
 	myResponse := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", md5UserRealmPwd, nonce, md5MethodURL))))
 	if myResponse != response {
 		return fmt.Errorf("CheckAuth error : response not equal")
 	}
-	return nil
+	return fmt.Errorf("CheckAuth error : user not exists")
 }
 
 func (session *Session) handleRequest(req *Request) {

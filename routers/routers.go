@@ -6,7 +6,6 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
@@ -97,6 +96,7 @@ func NeedLogin() gin.HandlerFunc {
 	}
 }
 
+// Init API of RTSP server
 func Init() (err error) {
 	Router = gin.New()
 	pprof.Register(Router)
@@ -105,26 +105,10 @@ func Init() (err error) {
 	Router.Use(Errors())
 	Router.Use(cors.Default())
 
-	store := sessions.NewGormStoreWithOptions(models.DB, sessions.GormStoreOptions{
-		TableName: "t_sessions",
-	}, []byte("EasyDarwin@2018"))
-
-	store.Options(sessions.Options{
-		HttpOnly: true,
-		MaxAge:   config.HTTP.TokenTimeout,
-		Path:     "/",
-	})
-	sessionHandle := sessions.Sessions("token", store)
-
 	Router.Use(static.Serve("/", static.LocalFile(config.HTTP.Static, true)))
 
 	{
-		api := Router.Group("/api/v1").Use(sessionHandle)
-		api.GET("/login", API.Login)
-		api.GET("/userinfo", API.UserInfo)
-		api.GET("/logout", API.Logout)
-		api.GET("/defaultlogininfo", API.DefaultLoginInfo)
-		api.GET("/modifypassword", NeedLogin(), API.ModifyPassword)
+		api := Router.Group("/api/v1")
 		api.GET("/serverinfo", API.GetServerInfo)
 		api.GET("/restart", API.Restart)
 

@@ -25,8 +25,15 @@ type ConfigPlayer struct {
 	SendQueueLength int `ini:"send_queue_length"`
 }
 
+type ConfigRedis struct {
+	Host     string `ini:"host"`
+	Password string `ini:"password"`
+	DB       int    `ini:"db"`
+}
+
 // Config of rtsp server
 type Config struct {
+	Redis  ConfigRedis  `ini:"redis"`
 	Record ConfigRecord `ini:"record"`
 	RTSP   ConfigRTSP   `ini:"rtsp"`
 	Log    ConfigLog    `ini:"log"`

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -13,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/teris-io/shortid"
 
 	"github.com/pixelbender/go-sdp/sdp"
 )
@@ -64,17 +63,24 @@ func (client *RTSPClient) String() string {
 	return fmt.Sprintf("client[%s]", client.URL)
 }
 
-func NewRTSPClient(server *Server, rawUrl string, sendOptionMillis int64, agent string) (client *RTSPClient, err error) {
-	url, err := url.Parse(rawUrl)
+// NewRTSPClient for pull streams
+func NewRTSPClient(
+	server *Server,
+	ID string,
+	rawURL string,
+	sendOptionMillis int64,
+	agent string) (client *RTSPClient, err error) {
+
+	_url, err := url.Parse(rawURL)
 	if err != nil {
 		return
 	}
 	client = &RTSPClient{
 		Server:               server,
 		Stoped:               false,
-		URL:                  rawUrl,
-		ID:                   shortid.MustGenerate(),
-		Path:                 url.Path,
+		URL:                  rawURL,
+		ID:                   ID,
+		Path:                 _url.Path,
 		TransType:            TRANS_TYPE_TCP,
 		vRTPChannel:          0,
 		vRTPControlChannel:   1,
@@ -90,6 +96,23 @@ func NewRTSPClient(server *Server, rawUrl string, sendOptionMillis int64, agent 
 	return
 }
 
+// BasicAuth of RTSP
+func BasicAuth(authLine string, method string, URL string) (string, error) {
+	l, err := url.Parse(URL)
+	if err != nil {
+		return "", fmt.Errorf("Url parse error:%v,%v", URL, err)
+	}
+
+	username := l.User.Username()
+	password, _ := l.User.Password()
+	basic := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", username, password)))
+
+	authorization := fmt.Sprintf("Basic %s", basic)
+
+	return authorization, nil
+}
+
+// DigestAuth of RTSP
 func DigestAuth(authLine string, method string, URL string) (string, error) {
 	l, err := url.Parse(URL)
 	if err != nil {
@@ -133,9 +156,8 @@ func (client *RTSPClient) checkAuth(method string, resp *Response) (string, erro
 
 		// need auth.
 		AuthHeaders := resp.Header["WWW-Authenticate"]
-		auths, ok := AuthHeaders.([]string)
 
-		if ok {
+		if auths, ok := AuthHeaders.([]string); ok {
 			for _, authLine := range auths {
 
 				if strings.IndexAny(authLine, "Digest") == 0 {
@@ -144,21 +166,19 @@ func (client *RTSPClient) checkAuth(method string, resp *Response) (string, erro
 					client.authLine = authLine
 					return DigestAuth(authLine, method, client.URL)
 				} else if strings.IndexAny(authLine, "Basic") == 0 {
-					// not support yet
-					// TODO..
+					client.authLine = authLine
+					return BasicAuth(authLine, method, client.URL)
 				}
 
 			}
-			return "", fmt.Errorf("auth error")
-		} else {
-			authLine, _ := AuthHeaders.(string)
+			return "", fmt.Errorf("auth method nnot support, %v", auths)
+		} else if authLine, ok := AuthHeaders.(string); ok {
 			if strings.IndexAny(authLine, "Digest") == 0 {
 				client.authLine = authLine
 				return DigestAuth(authLine, method, client.URL)
 			} else if strings.IndexAny(authLine, "Basic") == 0 {
-				// not support yet
-				// TODO..
-				return "", fmt.Errorf("not support Basic auth yet")
+				client.authLine = authLine
+				return BasicAuth(authLine, method, client.URL)
 			}
 		}
 	}
@@ -210,16 +230,16 @@ func (client *RTSPClient) requestStream(timeout time.Duration) (err error) {
 	resp, err := client.Request("OPTIONS", headers)
 	if err != nil {
 		if resp != nil {
-			Authorization, _ := client.checkAuth("OPTIONS", resp)
+			Authorization, err := client.checkAuth("OPTIONS", resp)
+			if err != nil {
+				return err
+			}
 			if len(Authorization) > 0 {
 				headers := make(map[string]string)
 				headers["Require"] = "implicit-play"
 				headers["Authorization"] = Authorization
 				// An OPTIONS request returns the request types the server will accept.
 				resp, err = client.Request("OPTIONS", headers)
-			}
-			if err != nil {
-				return err
 			}
 		} else {
 			return err
