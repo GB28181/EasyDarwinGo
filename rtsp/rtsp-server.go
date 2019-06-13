@@ -70,7 +70,14 @@ func (server *Server) pusherLoop() {
 		case do, ok := <-server.pusherCommandChannel:
 			if ok {
 				do()
-				for _ = range server.getPushers {
+
+			CleanCacheLoop:
+				for {
+					select {
+					case _ = <-server.getPushers:
+					default:
+						break CleanCacheLoop
+					}
 				}
 			} else {
 				return

@@ -170,11 +170,14 @@ func NewSession(server *Server, conn net.Conn) *Session {
 	return session
 }
 
+// Stop the RTSP session
 func (session *Session) Stop() {
+	// TODO: more strong safe guard
 	if session.Stoped {
 		return
 	}
 	session.Stoped = true
+
 	for _, h := range session.StopHandles {
 		h()
 	}
@@ -195,6 +198,7 @@ func (session *Session) Stop() {
 
 func (session *Session) Start() {
 	defer session.Stop()
+
 	buf1 := make([]byte, 1)
 	buf2 := make([]byte, 2)
 	timer := time.Unix(0, 0)
@@ -324,66 +328,6 @@ func (session *Session) Start() {
 	}
 }
 
-func CheckAuth(authLine string, method string, sessionNonce string) error {
-	realmRex := regexp.MustCompile(`realm="(.*?)"`)
-	nonceRex := regexp.MustCompile(`nonce="(.*?)"`)
-	usernameRex := regexp.MustCompile(`username="(.*?)"`)
-	responseRex := regexp.MustCompile(`response="(.*?)"`)
-	uriRex := regexp.MustCompile(`uri="(.*?)"`)
-
-	realm := ""
-	nonce := ""
-	username := ""
-	response := ""
-	uri := ""
-	result1 := realmRex.FindStringSubmatch(authLine)
-	if len(result1) == 2 {
-		realm = result1[1]
-	} else {
-		return fmt.Errorf("CheckAuth error : no realm found")
-	}
-	result1 = nonceRex.FindStringSubmatch(authLine)
-	if len(result1) == 2 {
-		nonce = result1[1]
-	} else {
-		return fmt.Errorf("CheckAuth error : no nonce found")
-	}
-	if sessionNonce != nonce {
-		return fmt.Errorf("CheckAuth error : sessionNonce not same as nonce")
-	}
-
-	result1 = usernameRex.FindStringSubmatch(authLine)
-	if len(result1) == 2 {
-		username = result1[1]
-	} else {
-		return fmt.Errorf("CheckAuth error : username not found")
-	}
-
-	result1 = responseRex.FindStringSubmatch(authLine)
-	if len(result1) == 2 {
-		response = result1[1]
-	} else {
-		return fmt.Errorf("CheckAuth error : response not found")
-	}
-
-	result1 = uriRex.FindStringSubmatch(authLine)
-	if len(result1) == 2 {
-		uri = result1[1]
-	} else {
-		return fmt.Errorf("CheckAuth error : uri not found")
-	}
-
-	// TODO: query user
-
-	md5UserRealmPwd := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", username, realm, "user.Password"))))
-	md5MethodURL := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s", method, uri))))
-	myResponse := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", md5UserRealmPwd, nonce, md5MethodURL))))
-	if myResponse != response {
-		return fmt.Errorf("CheckAuth error : response not equal")
-	}
-	return fmt.Errorf("CheckAuth error : user not exists")
-}
-
 func (session *Session) handleRequest(req *Request) {
 	//if session.Timeout > 0 {
 	//	session.Conn.SetDeadline(time.Now().Add(time.Duration(session.Timeout) * time.Second))
@@ -486,7 +430,7 @@ func (session *Session) handleRequest(req *Request) {
 
 		addedToServer := session.Server.AddPusher(session.Pusher, session.closeOld)
 		if !addedToServer {
-			log.Info("reject pusher[%s]", session.Pusher.ID())
+			log.Infof("reject pusher[%s]", session.Pusher.ID())
 			res.StatusCode = 406
 			res.Status = "Not Acceptable"
 		}

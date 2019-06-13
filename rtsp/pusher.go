@@ -216,7 +216,7 @@ func NewClientPusher(client *RTSPClient) Pusher {
 	client.RTPHandles = append(client.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
-		pusher.Server().RemovePusher(pusher.ID())
+		pusher.Server().RemovePusher(pusher.Path())
 	})
 
 	return pusher
@@ -237,7 +237,7 @@ func NewPusher(session *Session) Pusher {
 	session.RTPHandles = append(session.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
 		pusher.ClearPlayer()
-		pusher.Server().RemovePusher(pusher.ID())
+		pusher.Server().RemovePusher(pusher.Path())
 	})
 
 	return pusher

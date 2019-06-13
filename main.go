@@ -130,8 +130,11 @@ func (p *program) Start(s service.Service) (err error) {
 				time.Sleep(10 * time.Second)
 				continue
 			}
-			for i := len(streams) - 1; i > -1; i-- {
-				v := streams[i]
+			for _, v := range streams {
+				if nil != rtsp.Instance.GetPusher(v.CustomPath, nil) {
+					continue
+				}
+
 				agent := fmt.Sprintf("EasyDarwinGo/%s", routers.BuildVersion)
 				if routers.BuildDateTime != "" {
 					agent = fmt.Sprintf("%s(%s)", agent, routers.BuildDateTime)
@@ -144,9 +147,6 @@ func (p *program) Start(s service.Service) (err error) {
 				client.CustomPath = v.CustomPath
 
 				pusher := rtsp.NewClientPusher(client)
-				if rtsp.GetServer().GetPusher(pusher.Path(), nil) != nil {
-					continue
-				}
 				err = client.Start(time.Duration(v.IdleTimeout) * time.Second)
 				if err != nil {
 					log.Printf("Pull stream err :%v", err)

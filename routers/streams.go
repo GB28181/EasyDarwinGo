@@ -119,19 +119,22 @@ func (h *APIHandler) StreamStop(c *gin.Context) {
 		return
 	}
 	pushers := rtsp.GetServer().GetPushers()
-	_pusher, ok := pushers.Get(form.ID)
-	if ok {
-		pusher := _pusher.(rtsp.Pusher)
-		// Remove first, in case of restart according to DB
-		if pusher.Mode() == rtsp.PusherModePull {
-			models.RemoveStream(pusher.ID())
-		}
-		// TODO: forbidden ID to restart in a while,
-		// or pause restart , remove from DB and stop it.
-		c.IndentedJSON(200, "OK")
-		log.Printf("Stop %s success ", pusher.ID())
-		return
+	for it := pushers.Iterator(); !it.Done(); {
+		_, _pusher := it.Next()
+		pusher, ok := _pusher.(rtsp.Pusher)
+		if ok && pusher.ID() == form.ID {
+			// Remove first, in case of restart according to DB
+			pusher.Server().RemovePusher(pusher.Path())
+			if pusher.Mode() == rtsp.PusherModePull {
+				models.RemoveStream(pusher.ID())
+			}
+			// TODO: forbidden ID to restart in a while,
+			// or pause restart , remove from DB and stop it.
+			c.IndentedJSON(200, "OK")
+			log.Printf("Stop %s success ", pusher.ID())
+			return
 
+		}
 	}
 	c.AbortWithStatusJSON(http.StatusNotFound, fmt.Sprintf("Pusher[%s] not found", form.ID))
 }
