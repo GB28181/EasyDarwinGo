@@ -13,12 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EasyDarwin/EasyDarwin/tls"
 	"github.com/penggy/EasyGoLib/utils"
 )
 
 type Server struct {
 	SessionLogger
-	TCPListener    *net.TCPListener
+	Listener       net.Listener
 	TCPPort        int
 	Stoped         bool
 	pushers        map[string]*Pusher // Path <-> Pusher
@@ -46,7 +47,13 @@ func (server *Server) Start() (err error) {
 	if err != nil {
 		return
 	}
-	listener, err := net.ListenTCP("tcp", addr)
+	cert := utils.Conf().Section("tls").Key("cert").MustString("")
+	key := utils.Conf().Section("tls").Key("key").MustString("")
+	if len(cert) == 0 || len(key) == 0 {
+		err = fmt.Errorf("failed to read cert or key")
+		return
+	}
+	listener, err := tls.NewTlsListener(cert, key, addr)
 	if err != nil {
 		return
 	}
@@ -147,11 +154,11 @@ func (server *Server) Start() (err error) {
 	}()
 
 	server.Stoped = false
-	server.TCPListener = listener
+	server.Listener = listener
 	logger.Println("rtsp server start on", server.TCPPort)
 	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
 	for !server.Stoped {
-		conn, err := server.TCPListener.Accept()
+		conn, err := server.Listener.Accept()
 		if err != nil {
 			logger.Println(err)
 			continue
@@ -163,6 +170,8 @@ func (server *Server) Start() (err error) {
 			if err := tcpConn.SetWriteBuffer(networkBuffer); err != nil {
 				logger.Printf("rtsp server conn set write buffer error, %v", err)
 			}
+		} else {
+			logger.Println("not tcp connection")
 		}
 
 		session := NewSession(server, conn)
@@ -175,9 +184,9 @@ func (server *Server) Stop() {
 	logger := server.logger
 	logger.Println("rtsp server stop on", server.TCPPort)
 	server.Stoped = true
-	if server.TCPListener != nil {
-		server.TCPListener.Close()
-		server.TCPListener = nil
+	if server.Listener != nil {
+		server.Listener.Close()
+		server.Listener = nil
 	}
 	server.pushersLock.Lock()
 	server.pushers = make(map[string]*Pusher)
