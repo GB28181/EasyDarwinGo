@@ -41,16 +41,10 @@ func GetServer() *Server {
 	return Instance
 }
 
-func (server *Server) Start() (err error) {
+func (server *Server) Start(cert, key string) (err error) {
 	logger := server.logger
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", server.TCPPort))
 	if err != nil {
-		return
-	}
-	cert := utils.Conf().Section("tls").Key("cert").MustString("")
-	key := utils.Conf().Section("tls").Key("key").MustString("")
-	if len(cert) == 0 || len(key) == 0 {
-		err = fmt.Errorf("failed to read cert or key")
 		return
 	}
 	listener, err := tls.NewTlsListener(cert, key, addr)
