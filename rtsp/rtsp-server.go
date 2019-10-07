@@ -170,8 +170,6 @@ func (server *Server) Start() (err error) {
 			if err := tcpConn.SetWriteBuffer(networkBuffer); err != nil {
 				logger.Printf("rtsp server conn set write buffer error, %v", err)
 			}
-		} else {
-			logger.Println("not tcp connection")
 		}
 
 		session := NewSession(server, conn)
