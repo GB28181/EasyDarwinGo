@@ -26,6 +26,7 @@ type Server struct {
 	pushersLock    sync.RWMutex
 	addPusherCh    chan *Pusher
 	removePusherCh chan *Pusher
+	streamSecret   string
 }
 
 var Instance *Server = &Server{
@@ -41,7 +42,7 @@ func GetServer() *Server {
 	return Instance
 }
 
-func (server *Server) Start(cert, key string) (err error) {
+func (server *Server) Start(cert, key, streamSecret string) (err error) {
 	logger := server.logger
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", server.TCPPort))
 	if err != nil {
@@ -51,7 +52,7 @@ func (server *Server) Start(cert, key string) (err error) {
 	if err != nil {
 		return
 	}
-
+	server.streamSecret = streamSecret
 	localRecord := utils.Conf().Section("rtsp").Key("save_stream_to_local").MustInt(0)
 	ffmpeg := utils.Conf().Section("rtsp").Key("ffmpeg_path").MustString("")
 	m3u8_dir_path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")

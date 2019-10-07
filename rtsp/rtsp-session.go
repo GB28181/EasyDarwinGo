@@ -3,7 +3,9 @@ package rtsp
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha512"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -106,6 +108,7 @@ type Session struct {
 	nonce               string
 	closeOld            bool
 	debugLogEnable      bool
+	streamSecret        string
 
 	AControl string
 	VControl string
@@ -160,6 +163,7 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		aRTPChannel:         -1,
 		aRTPControlChannel:  -1,
 		closeOld:            close_old != 0,
+		streamSecret:        server.streamSecret,
 	}
 
 	session.logger = log.New(os.Stdout, fmt.Sprintf("[%s]", session.ID), log.LstdFlags|log.Lshortfile)
@@ -362,6 +366,50 @@ func CheckAuth(authLine string, method string, sessionNonce string) error {
 	return nil
 }
 
+func validate(key []byte, salt []byte, request string, expected []byte) bool {
+	mac := hmac.New(sha512.New, key)
+	mac.Write(salt)
+	signingKey := mac.Sum(nil)
+	mac2 := hmac.New(sha512.New, signingKey)
+	mac2.Write([]byte(request))
+	return hmac.Equal(mac2.Sum(nil), expected)
+}
+
+func (session *Session) authenticate(req *Request) int {
+	u, _ := url.ParseRequestURI(req.URL)
+	exp := u.Query().Get("expires")
+	salt := u.Query().Get("salt")
+	signature := u.Query().Get("signature")
+	if len(exp) == 0 || len(salt) == 0 || len(signature) == 0 {
+		fmt.Printf("empty exp=%s, salt=%s or signature=%s", exp, salt, signature)
+		return 410
+	}
+	session.logger.Printf("exp=%s, salt=%s or signature=%s", exp, salt, signature)
+	fmt.Printf("exp=%s, salt=%s or signature=%s", exp, salt, signature)
+
+	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
+	if err != nil {
+		fmt.Printf("invalid exp=%s", exp)
+		return 410
+	}
+	if time.Now().After(expTime) {
+		fmt.Printf("signature has expired")
+		//return 407
+	}
+	buf := bytes.NewBufferString("TV")
+	buf.WriteString(session.streamSecret)
+
+	saltRaw := bytes.NewBufferString(salt)
+
+	fmt.Println(req.Method + "\n" + req.URL)
+	session.logger.Println(req.Method + "\n" + req.URL)
+	if validate(buf.Bytes(), saltRaw.Bytes(), req.Method+"\n"+req.URL, []byte(signature)) {
+		return 100
+	} else {
+		return 408
+	}
+}
+
 func (session *Session) handleRequest(req *Request) {
 	//if session.Timeout > 0 {
 	//	session.Conn.SetDeadline(time.Now().Add(time.Duration(session.Timeout) * time.Second))
@@ -406,6 +454,11 @@ func (session *Session) handleRequest(req *Request) {
 		}
 	}()
 	if req.Method != "OPTIONS" {
+		// This is to be consistent with API server.
+		res.StatusCode = session.authenticate(req)
+		if res.StatusCode != 100 {
+			res.Status = "Unauthorized"
+		}
 		if session.authorizationEnable {
 			authLine := req.Header["Authorization"]
 			authFailed := true
@@ -426,6 +479,7 @@ func (session *Session) handleRequest(req *Request) {
 				return
 			}
 		}
+
 	}
 	switch req.Method {
 	case "OPTIONS":
