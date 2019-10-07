@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/penggy/EasyGoLib/db"
-
 	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
-	figure "github.com/common-nighthawk/go-figure"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/penggy/EasyGoLib/db"
 	"github.com/penggy/EasyGoLib/utils"
 	"github.com/penggy/service"
 )
@@ -29,6 +28,8 @@ type program struct {
 	httpServer *http.Server
 	rtspPort   int
 	rtspServer *rtsp.Server
+	cert       string
+	key        string
 }
 
 func (p *program) StopHTTP() (err error) {
@@ -45,18 +46,19 @@ func (p *program) StopHTTP() (err error) {
 }
 
 func (p *program) StartHTTP() (err error) {
+
 	p.httpServer = &http.Server{
 		Addr:              fmt.Sprintf(":%d", p.httpPort),
 		Handler:           routers.Router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	link := fmt.Sprintf("http://%s:%d", utils.LocalIP(), p.httpPort)
-	log.Println("http server start -->", link)
+	link := fmt.Sprintf("https://%s:%d", utils.LocalIP(), p.httpPort)
+	log.Println("https server start -->", link)
 	go func() {
-		if err := p.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := p.httpServer.ListenAndServeTLS(p.cert, p.key); err != nil && err != http.ErrServerClosed {
 			log.Println("start http server error", err)
 		}
-		log.Println("http server end")
+		log.Println("https server end")
 	}()
 	return
 }
@@ -70,10 +72,10 @@ func (p *program) StartRTSP() (err error) {
 	if p.rtspPort != 554 {
 		sport = fmt.Sprintf(":%d", p.rtspPort)
 	}
-	link := fmt.Sprintf("rtsp://%s%s", utils.LocalIP(), sport)
+	link := fmt.Sprintf("rtsps://%s%s", utils.LocalIP(), sport)
 	log.Println("rtsp server start -->", link)
 	go func() {
-		if err := p.rtspServer.Start(); err != nil {
+		if err := p.rtspServer.Start(p.cert, p.key); err != nil {
 			log.Println("start rtsp server error", err)
 		}
 		log.Println("rtsp server end")
@@ -196,11 +198,15 @@ func main() {
 	}
 
 	httpPort := utils.Conf().Section("http").Key("port").MustInt(10008)
+	cert := utils.Conf().Section("tls").Key("cert").MustString("")
+	key := utils.Conf().Section("tls").Key("key").MustString("")
 	rtspServer := rtsp.GetServer()
 	p := &program{
 		httpPort:   httpPort,
 		rtspPort:   rtspServer.TCPPort,
 		rtspServer: rtspServer,
+		cert:       cert,
+		key:        key,
 	}
 	s, err := service.New(p, svcConfig)
 	if err != nil {
