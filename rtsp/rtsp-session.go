@@ -405,8 +405,8 @@ func (session *Session) authenticate(req *Request) int {
 	buf.Write(streamHex)
 
 	saltRaw, _ := base64.StdEncoding.DecodeString(salt)
-	request := req.Method + "\n" + u.RawPath + "\n" + paramUrl
-	fmt.Printf("\nrequest = %s\n rawPath = %s\n paramUrl=%s\n", request, u.RawPath, paramUrl)
+	request := req.Method + "\n" + u.Path + "\n" + paramUrl
+	fmt.Printf("\nrequest = %s\n u.Path = %s\n paramUrl=%s\n", request, u.Path, paramUrl)
 	if validate(buf.Bytes(), saltRaw, request) == signature {
 		fmt.Println("100")
 		return 100
