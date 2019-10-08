@@ -384,18 +384,18 @@ func (session *Session) authenticate(req *Request) int {
 	signature := u.Query().Get("signature")
 	if len(exp) == 0 || len(salt) == 0 || len(signature) == 0 {
 		fmt.Printf("empty exp=%s, salt=%s or signature=%s", exp, salt, signature)
-		return 410
+		return 401
 	}
 	params := strings.Split(u.RawQuery, "&")
 	paramUrl := params[0]
 	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
 	if err != nil {
 		fmt.Printf("invalid exp=%s", exp)
-		return 410
+		return 401
 	}
 	if time.Now().After(expTime) {
 		fmt.Printf("signature has expired")
-		return 407
+		return 403
 	}
 	buf := bytes.NewBufferString("TV")
 	streamHex, _ := hex.DecodeString(session.streamSecret)
@@ -407,7 +407,7 @@ func (session *Session) authenticate(req *Request) int {
 	if validate(buf.Bytes(), saltRaw, request) == signature {
 		return 200
 	} else {
-		return 408
+		return 401
 	}
 }
 
