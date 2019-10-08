@@ -297,15 +297,17 @@ func (pusher *Pusher) Stop() {
 func (pusher *Pusher) CheckNoConnection() {
 	logger := pusher.Logger()
 
-	noConnTimeout := utils.Conf().Section("rtsp").Key("no_connection_timeout").MustInt(30)
-	ticker := time.NewTicker(time.Duration(noConnTimeout) * time.Second)
+	checkInterval := utils.Conf().Section("rtsp").Key("check_no_connection_interval").MustInt(30)
+	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
 	for {
 		select {
 		case <-ticker.C:
 			// return if no listener
 			if pusher.GetPlayerLen() == 0 || pusher.Stoped() {
 				ticker.Stop()
-				pusher.Stop()
+				if !pusher.Stoped() {
+					pusher.Stop()
+				}
 				logger.Println("pusher stopped: no player within timeout")
 				return
 			}

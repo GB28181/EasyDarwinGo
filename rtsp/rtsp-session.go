@@ -119,7 +119,7 @@ type Session struct {
 	Timeout  int
 
 	Stoped     bool
-	statusLock sync.RWMutex
+	stopedLock sync.RWMutex
 
 	//tcp channels
 	aRTPChannel        int
@@ -174,9 +174,7 @@ func (session *Session) Stop() {
 	if session.getStoped() {
 		return
 	}
-	session.statusLock.Lock()
-	session.Stoped = true
-	session.statusLock.Unlock()
+	session.setStoped(true)
 	for _, h := range session.StopHandles {
 		h()
 	}
@@ -776,8 +774,15 @@ func (session *Session) SendRTP(pack *RTPPack) (err error) {
 }
 
 func (session *Session) getStoped() bool {
-	session.statusLock.RLock()
+	session.stopedLock.RLock()
 	isStop := session.Stoped
-	session.statusLock.RUnlock()
+	session.stopedLock.RUnlock()
 	return isStop
+}
+
+func (session *Session) setStoped(stop bool) {
+	session.stopedLock.Lock()
+	session.Stoped = stop
+	session.stopedLock.Unlock()
+	return
 }
