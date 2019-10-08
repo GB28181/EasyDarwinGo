@@ -296,7 +296,6 @@ func (pusher *Pusher) Stop() {
 
 func (pusher *Pusher) CheckNoConnection() {
 	logger := pusher.Logger()
-
 	checkInterval := utils.Conf().Section("rtsp").Key("check_no_connection_interval").MustInt(30)
 	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
 	for {
