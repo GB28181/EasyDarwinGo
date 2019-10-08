@@ -389,8 +389,7 @@ func (session *Session) authenticate(req *Request) int {
 	params := strings.Split(u.RawQuery, "&")
 	paramUrl := params[0]
 
-	session.logger.Printf("logger: exp=%s, salt=%s or signature=%s or paramUrl=%s", exp, salt, signature, paramUrl)
-	fmt.Printf("fmt: exp=%s, salt=%s or signature=%s or paramUrl=%s", exp, salt, signature, paramUrl)
+	fmt.Printf("\nfmt: exp=%s, salt=%s or signature=%s or paramUrl=%s\n", exp, salt, signature, paramUrl)
 
 	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
 	if err != nil {
@@ -407,11 +406,12 @@ func (session *Session) authenticate(req *Request) int {
 
 	saltRaw, _ := base64.StdEncoding.DecodeString(salt)
 	request := req.Method + "\n" + u.RawPath + "\n" + paramUrl
-	fmt.Println(request)
-	session.logger.Println(request)
+	fmt.Printf("\nrequest = %s\n rawPath = %s\n paramUrl=%s\n", request, u.RawPath, paramUrl)
 	if validate(buf.Bytes(), saltRaw, request) == signature {
+		fmt.Println("100")
 		return 100
 	} else {
+		fmt.Printf("400")
 		return 408
 	}
 }
