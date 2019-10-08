@@ -6,7 +6,9 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -366,13 +368,13 @@ func CheckAuth(authLine string, method string, sessionNonce string) error {
 	return nil
 }
 
-func validate(key []byte, salt []byte, request string, expected []byte) bool {
+func validate(key []byte, salt []byte, request string) string {
 	mac := hmac.New(sha512.New, key)
 	mac.Write(salt)
 	signingKey := mac.Sum(nil)
 	mac2 := hmac.New(sha512.New, signingKey)
 	mac2.Write([]byte(request))
-	return hmac.Equal(mac2.Sum(nil), expected)
+	return base64.StdEncoding.EncodeToString(mac2.Sum(nil))
 }
 
 func (session *Session) authenticate(req *Request) int {
@@ -384,8 +386,11 @@ func (session *Session) authenticate(req *Request) int {
 		fmt.Printf("empty exp=%s, salt=%s or signature=%s", exp, salt, signature)
 		return 410
 	}
-	session.logger.Printf("exp=%s, salt=%s or signature=%s", exp, salt, signature)
-	fmt.Printf("exp=%s, salt=%s or signature=%s", exp, salt, signature)
+	params := strings.Split(u.RawQuery, "&")
+	paramUrl := params[0]
+
+	session.logger.Printf("logger: exp=%s, salt=%s or signature=%s or paramUrl=%s", exp, salt, signature, paramUrl)
+	fmt.Printf("fmt: exp=%s, salt=%s or signature=%s or paramUrl=%s", exp, salt, signature, paramUrl)
 
 	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
 	if err != nil {
@@ -394,16 +399,17 @@ func (session *Session) authenticate(req *Request) int {
 	}
 	if time.Now().After(expTime) {
 		fmt.Printf("signature has expired")
-		//return 407
+		return 407
 	}
 	buf := bytes.NewBufferString("TV")
-	buf.WriteString(session.streamSecret)
+	streamHex, _ := hex.DecodeString(session.streamSecret)
+	buf.Write(streamHex)
 
-	saltRaw := bytes.NewBufferString(salt)
-
-	fmt.Println(req.Method + "\n" + req.URL)
-	session.logger.Println(req.Method + "\n" + req.URL)
-	if validate(buf.Bytes(), saltRaw.Bytes(), req.Method+"\n"+req.URL, []byte(signature)) {
+	saltRaw, _ := base64.StdEncoding.DecodeString(salt)
+	request := req.Method + "\n" + u.RawPath + "\n" + paramUrl
+	fmt.Println(request)
+	session.logger.Println(request)
+	if validate(buf.Bytes(), saltRaw, request) == signature {
 		return 100
 	} else {
 		return 408
