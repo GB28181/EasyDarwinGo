@@ -388,9 +388,6 @@ func (session *Session) authenticate(req *Request) int {
 	}
 	params := strings.Split(u.RawQuery, "&")
 	paramUrl := params[0]
-
-	fmt.Printf("\nfmt: exp=%s, salt=%s or signature=%s or paramUrl=%s\n", exp, salt, signature, paramUrl)
-
 	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
 	if err != nil {
 		fmt.Printf("invalid exp=%s", exp)
@@ -406,16 +403,10 @@ func (session *Session) authenticate(req *Request) int {
 
 	saltRaw, _ := base64.StdEncoding.DecodeString(salt)
 	rawPath := strings.Split(req.URL, "?")[0]
-
 	request := req.Method + "\n" + rawPath + "\n" + paramUrl
-	fmt.Printf("\n request=%s rawPath=%s", request, rawPath)
-
-	fmt.Printf("\nrequest = %s\n u.Path = %s\n u.RawPath=%s\n u.Opaque=%s\n paramUrl=%s\n", request, u.Path, u.RawPath, u.Opaque, paramUrl)
 	if validate(buf.Bytes(), saltRaw, request) == signature {
-		fmt.Println("100")
 		return 100
 	} else {
-		fmt.Printf("400")
 		return 408
 	}
 }
@@ -468,6 +459,10 @@ func (session *Session) handleRequest(req *Request) {
 		res.StatusCode = session.authenticate(req)
 		if res.StatusCode != 100 {
 			res.Status = "Unauthorized"
+			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
+			session.nonce = nonce
+			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
+			return
 		}
 		if session.authorizationEnable {
 			authLine := req.Header["Authorization"]
