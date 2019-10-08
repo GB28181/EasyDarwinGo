@@ -405,7 +405,7 @@ func (session *Session) authenticate(req *Request) int {
 	rawPath := strings.Split(req.URL, "?")[0]
 	request := req.Method + "\n" + rawPath + "\n" + paramUrl
 	if validate(buf.Bytes(), saltRaw, request) == signature {
-		return 100
+		return 200
 	} else {
 		return 408
 	}
@@ -457,7 +457,7 @@ func (session *Session) handleRequest(req *Request) {
 	if req.Method != "OPTIONS" {
 		// This is to be consistent with API server.
 		res.StatusCode = session.authenticate(req)
-		if res.StatusCode != 100 {
+		if res.StatusCode != 200 {
 			res.Status = "Unauthorized"
 			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
 			session.nonce = nonce
@@ -484,7 +484,6 @@ func (session *Session) handleRequest(req *Request) {
 				return
 			}
 		}
-
 	}
 	switch req.Method {
 	case "OPTIONS":
