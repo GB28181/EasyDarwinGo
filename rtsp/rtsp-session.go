@@ -455,17 +455,6 @@ func (session *Session) handleRequest(req *Request) {
 		}
 	}()
 	if req.Method != "OPTIONS" {
-		// This is to be consistent with API server.
-		code := session.authenticate(req)
-		if code != 200 {
-			logger.Printf("auth status is not 200 %d", code)
-			//res.Status = "Unauthorized"
-			//res.StatusCode = code
-			//nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
-			//session.nonce = nonce
-			//res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
-			//return
-		}
 		if session.authorizationEnable {
 			authLine := req.Header["Authorization"]
 			authFailed := true
@@ -498,6 +487,18 @@ func (session *Session) handleRequest(req *Request) {
 		if err != nil {
 			res.StatusCode = 500
 			res.Status = "Invalid URL"
+			return
+		}
+
+		// This is to be consistent with API server.
+		code := session.authenticate(req)
+		if code != 200 {
+			logger.Printf("auth status is not 200 %d", code)
+			res.Status = "Unauthorized"
+			res.StatusCode = code
+			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
+			session.nonce = nonce
+			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
 			return
 		}
 		session.Path = url.Path
@@ -567,6 +568,18 @@ func (session *Session) handleRequest(req *Request) {
 			res.Status = "Invalid URL"
 			return
 		}
+		// This is to be consistent with API server.
+		code := session.authenticate(req)
+		if code != 200 {
+			logger.Printf("auth status is not 200 %d", code)
+			res.Status = "Unauthorized"
+			res.StatusCode = code
+			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
+			session.nonce = nonce
+			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
+			return
+		}
+
 		session.Path = url.Path
 		pusher := session.Server.GetPusher(session.Path)
 		if pusher == nil {
