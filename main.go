@@ -24,12 +24,13 @@ var (
 )
 
 type program struct {
-	httpPort   int
-	httpServer *http.Server
-	rtspPort   int
-	rtspServer *rtsp.Server
-	cert       string
-	key        string
+	httpPort     int
+	httpServer   *http.Server
+	rtspPort     int
+	rtspServer   *rtsp.Server
+	cert         string
+	key          string
+	streamSecret string
 }
 
 func (p *program) StopHTTP() (err error) {
@@ -75,7 +76,7 @@ func (p *program) StartRTSP() (err error) {
 	link := fmt.Sprintf("rtsps://%s%s", utils.LocalIP(), sport)
 	log.Println("rtsp server start -->", link)
 	go func() {
-		if err := p.rtspServer.Start(p.cert, p.key); err != nil {
+		if err := p.rtspServer.Start(p.cert, p.key, p.streamSecret); err != nil {
 			log.Println("start rtsp server error", err)
 		}
 		log.Println("rtsp server end")
@@ -200,13 +201,15 @@ func main() {
 	httpPort := utils.Conf().Section("http").Key("port").MustInt(10008)
 	cert := utils.Conf().Section("tls").Key("cert").MustString("")
 	key := utils.Conf().Section("tls").Key("key").MustString("")
+	streamSecret := utils.Conf().Section("rtsp").Key("stream_secret_key").MustString("")
 	rtspServer := rtsp.GetServer()
 	p := &program{
-		httpPort:   httpPort,
-		rtspPort:   rtspServer.TCPPort,
-		rtspServer: rtspServer,
-		cert:       cert,
-		key:        key,
+		httpPort:     httpPort,
+		rtspPort:     rtspServer.TCPPort,
+		rtspServer:   rtspServer,
+		cert:         cert,
+		key:          key,
+		streamSecret: streamSecret,
 	}
 	s, err := service.New(p, svcConfig)
 	if err != nil {

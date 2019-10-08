@@ -3,8 +3,12 @@ package rtsp
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -106,6 +110,7 @@ type Session struct {
 	nonce               string
 	closeOld            bool
 	debugLogEnable      bool
+	streamSecret        string
 
 	AControl string
 	VControl string
@@ -161,6 +166,7 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		aRTPChannel:         -1,
 		aRTPControlChannel:  -1,
 		closeOld:            close_old != 0,
+		streamSecret:        server.streamSecret,
 	}
 
 	session.logger = log.New(os.Stdout, fmt.Sprintf("[%s]", session.ID), log.LstdFlags|log.Lshortfile)
@@ -363,6 +369,49 @@ func CheckAuth(authLine string, method string, sessionNonce string) error {
 	return nil
 }
 
+func validate(key []byte, salt []byte, request string) string {
+	mac := hmac.New(sha512.New, key)
+	mac.Write(salt)
+	signingKey := mac.Sum(nil)
+	mac2 := hmac.New(sha512.New, signingKey)
+	mac2.Write([]byte(request))
+	return base64.StdEncoding.EncodeToString(mac2.Sum(nil))
+}
+
+func (session *Session) authenticate(req *Request) int {
+	u, _ := url.ParseRequestURI(req.URL)
+	exp := u.Query().Get("expires")
+	salt := u.Query().Get("salt")
+	signature := u.Query().Get("signature")
+	if len(exp) == 0 || len(salt) == 0 || len(signature) == 0 {
+		fmt.Printf("empty exp=%s, salt=%s or signature=%s", exp, salt, signature)
+		return 401
+	}
+	params := strings.Split(u.RawQuery, "&")
+	paramUrl := params[0]
+	expTime, err := time.Parse("2006-01-02T15:04:05Z", exp)
+	if err != nil {
+		fmt.Printf("invalid exp=%s", exp)
+		return 401
+	}
+	if time.Now().After(expTime) {
+		fmt.Printf("signature has expired")
+		return 403
+	}
+	buf := bytes.NewBufferString("TV")
+	streamHex, _ := hex.DecodeString(session.streamSecret)
+	buf.Write(streamHex)
+
+	saltRaw, _ := base64.StdEncoding.DecodeString(salt)
+	rawPath := strings.Split(req.URL, "?")[0]
+	request := req.Method + "\n" + rawPath + "\n" + paramUrl
+	if validate(buf.Bytes(), saltRaw, request) == signature {
+		return 200
+	} else {
+		return 401
+	}
+}
+
 func (session *Session) handleRequest(req *Request) {
 	//if session.Timeout > 0 {
 	//	session.Conn.SetDeadline(time.Now().Add(time.Duration(session.Timeout) * time.Second))
@@ -441,6 +490,18 @@ func (session *Session) handleRequest(req *Request) {
 			res.Status = "Invalid URL"
 			return
 		}
+
+		// This is to be consistent with API server.
+		code := session.authenticate(req)
+		if code != 200 {
+			logger.Printf("auth status is not 200 %d", code)
+			res.Status = "Unauthorized"
+			res.StatusCode = code
+			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
+			session.nonce = nonce
+			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
+			return
+		}
 		session.Path = url.Path
 
 		session.SDPRaw = req.Body
@@ -508,6 +569,18 @@ func (session *Session) handleRequest(req *Request) {
 			res.Status = "Invalid URL"
 			return
 		}
+		// This is to be consistent with API server.
+		code := session.authenticate(req)
+		if code != 200 {
+			logger.Printf("auth status is not 200 %d", code)
+			res.Status = "Unauthorized"
+			res.StatusCode = code
+			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
+			session.nonce = nonce
+			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
+			return
+		}
+
 		session.Path = url.Path
 		pusher := session.Server.GetPusher(session.Path)
 		if pusher == nil {
