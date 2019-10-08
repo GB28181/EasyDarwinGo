@@ -456,9 +456,10 @@ func (session *Session) handleRequest(req *Request) {
 	}()
 	if req.Method != "OPTIONS" {
 		// This is to be consistent with API server.
-		res.StatusCode = session.authenticate(req)
-		if res.StatusCode != 200 {
+		code := session.authenticate(req)
+		if code != 200 {
 			res.Status = "Unauthorized"
+			res.StatusCode = code
 			nonce := fmt.Sprintf("%x", md5.Sum([]byte(shortid.MustGenerate())))
 			session.nonce = nonce
 			res.Header["WWW-Authenticate"] = fmt.Sprintf(`Digest realm="EasyDarwin", nonce="%s", algorithm="MD5"`, nonce)
