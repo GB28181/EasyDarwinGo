@@ -9,7 +9,7 @@ import (
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"github.com/EasyDarwin/EasyDarwin/cors"
-	"github.com/EasyDarwin/win/sessions"
+	"github.com/EasyDarwin/EasyDarwin/sessions"
 	validator "gopkg.in/go-playground/validator.v8"
 )
 

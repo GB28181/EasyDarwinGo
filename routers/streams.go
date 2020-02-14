@@ -80,7 +80,7 @@ func (h *APIHandler) StreamStart(c *gin.Context) {
 		return
 	}
 	log.Printf("Pull to push %v success ", form)
-	rtsp.GetServer().AddPusher(pusher)
+	rtsp.GetServer().AddPusher(pusher, true)
 	// save to db.
 	stream := models.Stream{
 		ID:                client.ID,
