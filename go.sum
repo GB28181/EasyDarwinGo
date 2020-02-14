@@ -1,7 +1,3 @@
-github.com/EasyDarwin/cors v0.0.0-20180918145040-d08bb28f7e48 h1:hy1KCfzBOzO70pyGh62FKDVu0lJN8vfKzvAwY9xPjVY=
-github.com/EasyDarwin/cors v0.0.0-20180918145040-d08bb28f7e48 h1:hy1KCfzBOzO70pyGh62FKDVu0lJN8vfKzvAwY9xPjVY=
-github.com/EasyDarwin/cors v0.0.0-20180918145040-d08bb28f7e48/go.mod h1:7ZxfmRpyLzLsFuBNxwsTBq2+perYnFnMS9vEE4GQpkA=
-github.com/EasyDarwin/cors v0.0.0-20180918145040-d08bb28f7e48/go.mod h1:7ZxfmRpyLzLsFuBNxwsTBq2+perYnFnMS9vEE4GQpkA=
 github.com/StackExchange/wmi v0.0.0-20180412205111-cdffdb33acae h1:Bqpru5NELaHtO/p7+TwRSKXWAMng4BCFBqVJ2eU8gpk=
 github.com/StackExchange/wmi v0.0.0-20180412205111-cdffdb33acae/go.mod h1:3eOhrUMpNV+6aFIbp5/iudMxNCF27Vw2OZgy4xEx0Fg=
 github.com/benbjohnson/immutable v0.2.0 h1:t0rW3lNFwfQ85IDO1mhMbumxdVSti4nnVaal4r45Oio=

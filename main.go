@@ -15,7 +15,7 @@ import (
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
 	"github.com/EasyDarwin/EasyDarwin/utils"
 	figure "github.com/common-nighthawk/go-figure"
-	"github.com/EasyDarwin/service"
+	"github.com/EasyDarwin/EasyDarwin/service"
 )
 
 var (

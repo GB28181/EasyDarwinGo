@@ -8,7 +8,7 @@ import (
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/EasyDarwin/cors"
+	"github.com/EasyDarwin/EasyDarwin/cors"
 	"github.com/EasyDarwin/win/sessions"
 	validator "gopkg.in/go-playground/validator.v8"
 )
