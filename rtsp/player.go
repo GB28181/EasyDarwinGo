@@ -2,7 +2,6 @@ package rtsp
 
 import (
 	"time"
-	"github.com/EasyDarwin/EasyDarwin/utils"
 )
 
 // Player wrapper of Media data receiver
@@ -106,18 +105,4 @@ func (player *_Player) Start() {
 
 func (player *_Player) Stop() {
 	player.Session.Stop()
-}
-
-func (player *Player) Pause(paused bool) {
-	if paused {
-		player.logger.Printf("Player %s, Pause\n", player.String())
-	} else {
-		player.logger.Printf("Player %s, Play\n", player.String())
-	}
-	player.cond.L.Lock()
-	if paused && player.dropPacketWhenPaused && len(player.queue) > 0 {
-		player.queue = make([]*RTPPack, 0)
-	}
-	player.paused = paused
-	player.cond.L.Unlock()
 }

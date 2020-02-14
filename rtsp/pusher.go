@@ -57,9 +57,9 @@ type _Pusher struct {
 	*RTSPClient
 	players        *immutable.Map //SessionID <-> Player
 	playersLocker  *utils.SpinLock
-	gopCacheEnable    bool
-	gopCache          []*RTPPack
-	gopCacheLock      sync.RWMutex
+	gopCacheEnable bool
+	gopCache       []*RTPPack
+	gopCacheLock   sync.RWMutex
 
 	spsppsInSTAPaPack bool
 	queue             chan *RTPPack
@@ -236,68 +236,10 @@ func NewPusher(session *Session) Pusher {
 	}
 	session.RTPHandles = append(session.RTPHandles, pusher.QueueRTP)
 	pusher.AddOnStopHandle(func() {
-}
-
-func (pusher *Pusher) bindSession(session *Session) {
-	pusher.Session = session
-	session.RTPHandles = append(session.RTPHandles, func(pack *RTPPack) {
-		if session != pusher.Session {
-			session.logger.Printf("Session recv rtp to pusher.but pusher got a new session[%v].", pusher.Session.ID)
-			return
-		}
-		pusher.QueueRTP(pack)
-	})
-	session.StopHandles = append(session.StopHandles, func() {
-		if session != pusher.Session {
-			session.logger.Printf("Session stop to release pusher.but pusher got a new session[%v].", pusher.Session.ID)
-			return
-		}
 		pusher.ClearPlayer()
-		pusher.Server().RemovePusher(pusher)
-		pusher.cond.Broadcast()
-		if pusher.UDPServer != nil {
-			pusher.UDPServer.Stop()
-			pusher.UDPServer = nil
-		}
+		pusher.Server().RemovePusher(pusher.Path())
 	})
-}
 
-func (pusher *Pusher) RebindSession(session *Session) bool {
-	if pusher.RTSPClient != nil {
-		pusher.Logger().Printf("call RebindSession[%s] to a Client-Pusher. got false", session.ID)
-		return false
-	}
-	sess := pusher.Session
-	pusher.bindSession(session)
-	session.Pusher = pusher
-
-	pusher.gopCacheLock.Lock()
-	pusher.gopCache = make([]*RTPPack, 0)
-	pusher.gopCacheLock.Unlock()
-	if sess != nil {
-		sess.Stop()
-	}
-	return true
-}
-
-func (pusher *Pusher) RebindClient(client *RTSPClient) bool {
-	if pusher.Session != nil {
-		pusher.Logger().Printf("call RebindClient[%s] to a Session-Pusher. got false", client.ID)
-		return false
-	}
-	sess := pusher.RTSPClient
-	pusher.RTSPClient = client
-	if sess != nil {
-		sess.Stop()
-	}
-	return true
-}
-
-func (pusher *Pusher) QueueRTP(pack *RTPPack) *Pusher {
-	pusher.cond.L.Lock()
-	pusher.queue = append(pusher.queue, pack)
-	pusher.cond.Signal()
-	pusher.cond.L.Unlock()
 	return pusher
 }
 
@@ -339,41 +281,25 @@ func (pusher *_Pusher) Stop() {
 	pusher.RTSPClient.Stop()
 }
 
-func (pusher *Pusher) CheckNoConnection() {
-	logger := pusher.Logger()
-	checkInterval := utils.Conf().Section("rtsp").Key("check_no_connection_interval").MustInt(30)
-	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
-	for {
-		select {
-		case <-ticker.C:
-			// return if no listener
-			if pusher.GetPlayerLen() == 0 || pusher.Stoped() {
-				ticker.Stop()
-				if !pusher.Stoped() {
-					pusher.Stop()
-				}
-				logger.Println("pusher stopped: no player within timeout")
-				return
-			}
-		}
-	}
-}
+func (pusher *_Pusher) BroadcastRTP(pack *RTPPack) *_Pusher {
+	players := pusher.GetPlayers()
 
-func (pusher *Pusher) BroadcastRTP(pack *RTPPack) *Pusher {
-	for _, player := range pusher.GetPlayers() {
+	for itPlayer := players.Iterator(); !itPlayer.Done(); {
+		_, _player := itPlayer.Next()
+		player := _player.(Player)
 		player.QueueRTP(pack)
 		pusher.AddOutputBytes(pack.Buffer.Len())
 	}
+
 	return pusher
 }
 
-func (pusher *Pusher) GetPlayerLen() int {
-	pusher.playersLock.RLock()
-	length := len(pusher.players)
-	pusher.playersLock.RUnlock()
-	return length
-}
+func (pusher *_Pusher) GetPlayers() *immutable.Map {
+	pusher.playersLocker.Lock()
+	players := pusher.players
+	pusher.playersLocker.Unlock()
 
+	return players
 }
 
 func (pusher *_Pusher) GetPlayer(ID string) Player {
@@ -381,18 +307,11 @@ func (pusher *_Pusher) GetPlayer(ID string) Player {
 	if !ok {
 		return nil
 	}
+
 	return _player.(Player)
 }
 
-func (pusher *Pusher) HasPlayer(player *Player) bool {
-	pusher.playersLock.Lock()
-	_, ok := pusher.players[player.ID]
-	pusher.playersLock.Unlock()
-	return ok
-}
-
-func (pusher *Pusher) AddPlayer(player *Player) *Pusher {
-	logger := pusher.Logger()
+func (pusher *_Pusher) AddPlayer(player Player) error {
 	if pusher.gopCacheEnable {
 		pusher.gopCacheLock.RLock()
 		for _, pack := range pusher.gopCache {
