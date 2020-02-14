@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultKey    = "github.com/penggy/sessions"
+	DefaultKey    = "github.com/EasyDarwin/sessions"
 	errorFormat   = "[sessions] ERROR! %s\n"
 	defaultMaxAge = 60 * 60 * 24 * 30 // 30 days
 	defaultPath   = "/"

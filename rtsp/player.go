@@ -2,7 +2,7 @@ package rtsp
 
 import (
 	"time"
-	"github.com/penggy/EasyGoLib/utils"
+	"github.com/EasyDarwin/EasyGoLib/utils"
 )
 
 // Player wrapper of Media data receiver

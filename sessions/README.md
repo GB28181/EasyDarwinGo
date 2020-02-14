@@ -2,8 +2,8 @@
 
 [![Build Status](https://travis-ci.org/gin-contrib/sessions.svg)](https://travis-ci.org/gin-contrib/sessions)
 [![codecov](https://codecov.io/gh/gin-contrib/sessions/branch/master/graph/badge.svg)](https://codecov.io/gh/gin-contrib/sessions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/penggy/sessions)](https://goreportcard.com/report/github.com/penggy/sessions)
-[![GoDoc](https://godoc.org/github.com/penggy/sessions?status.svg)](https://godoc.org/github.com/penggy/sessions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/EasyDarwin/sessions)](https://goreportcard.com/report/github.com/EasyDarwin/sessions)
+[![GoDoc](https://godoc.org/github.com/EasyDarwin/sessions?status.svg)](https://godoc.org/github.com/EasyDarwin/sessions)
 [![Join the chat at https://gitter.im/gin-gonic/gin](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/gin-gonic/gin)
 
 Gin middleware for session management with multi-backend support (currently cookie, Redis, Memcached, MongoDB, memstore).
@@ -15,13 +15,13 @@ Gin middleware for session management with multi-backend support (currently cook
 Download and install it:
 
 ```bash
-$ go get github.com/penggy/sessions
+$ go get github.com/EasyDarwin/sessions
 ```
 
 Import it in your code:
 
 ```go
-import "github.com/penggy/sessions"
+import "github.com/EasyDarwin/sessions"
 ```
 
 ## Examples
@@ -33,8 +33,8 @@ import "github.com/penggy/sessions"
 package main
 
 import (
-	"github.com/penggy/sessions"
-	"github.com/penggy/sessions/cookie"
+	"github.com/EasyDarwin/sessions"
+	"github.com/EasyDarwin/sessions/cookie"
 	"github.com/gin-gonic/gin"
 )
 
@@ -68,8 +68,8 @@ func main() {
 package main
 
 import (
-	"github.com/penggy/sessions"
-	"github.com/penggy/sessions/redis"
+	"github.com/EasyDarwin/sessions"
+	"github.com/EasyDarwin/sessions/redis"
 	"github.com/gin-gonic/gin"
 )
 
@@ -104,8 +104,8 @@ package main
 
 import (
 	"github.com/bradfitz/gomemcache/memcache"
-	"github.com/penggy/sessions"
-	"github.com/penggy/sessions/memcached"
+	"github.com/EasyDarwin/sessions"
+	"github.com/EasyDarwin/sessions/memcached"
 	"github.com/gin-gonic/gin"
 )
 
@@ -139,8 +139,8 @@ func main() {
 package main
 
 import (
-	"github.com/penggy/sessions"
-	"github.com/penggy/sessions/mongo"
+	"github.com/EasyDarwin/sessions"
+	"github.com/EasyDarwin/sessions/mongo"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/mgo.v2"
 )
@@ -181,8 +181,8 @@ func main() {
 package main
 
 import (
-	"github.com/penggy/sessions"
-	"github.com/penggy/sessions/memstore"
+	"github.com/EasyDarwin/sessions"
+	"github.com/EasyDarwin/sessions/memstore"
 	"github.com/gin-gonic/gin"
 )
 
