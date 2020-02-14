@@ -1,96 +1,111 @@
 package rtsp
 
 import (
-	"sync"
 	"time"
 	"github.com/penggy/EasyGoLib/utils"
 )
 
-type Player struct {
-	*Session
-	Pusher *Pusher
-	cond   *sync.Cond
-	queue  []*RTPPack
-	queueLimit int
-	dropPacketWhenPaused bool
-	paused bool
+// Player wrapper of Media data receiver
+type Player interface {
+	// usage
+	QueueRTP(pack *RTPPack) Player
+	Start()
+	Stop()
+	// status
+	ID() string
+	Path() string
+	TransType() TransType
+	InBytes() uint
+	OutBytes() uint
+	StartAt() time.Time
 }
 
-func NewPlayer(session *Session, pusher *Pusher) (player *Player) {
-	queueLimit := utils.Conf().Section("rtsp").Key("player_queue_limit").MustInt(0)
-	dropPacketWhenPaused := utils.Conf().Section("rtsp").Key("drop_packet_when_paused").MustInt(0)
-	player = &Player{
+type _Player struct {
+	*Session
+	Pusher Pusher
+	queue  chan *RTPPack
+}
+
+// NewPlayer of network session
+func NewPlayer(session *Session, pusher Pusher) Player {
+	player := &_Player{
 		Session: session,
 		Pusher:  pusher,
-		cond:    sync.NewCond(&sync.Mutex{}),
-		queue:   make([]*RTPPack, 0),
-		queueLimit: queueLimit,
-		dropPacketWhenPaused: dropPacketWhenPaused != 0,
-		paused:  false,
+		queue:   make(chan *RTPPack, config.Player.SendQueueLength),
 	}
 	session.StopHandles = append(session.StopHandles, func() {
 		pusher.RemovePlayer(player)
-		player.cond.Broadcast()
+		close(player.queue)
 	})
-	return
-}
-
-func (player *Player) QueueRTP(pack *RTPPack) *Player {
-	logger := player.logger
-	if pack == nil {
-		logger.Printf("player queue enter nil pack, drop it")
-		return player
-	}
-	if player.paused && player.dropPacketWhenPaused {
-		return player
-	}
-	player.cond.L.Lock()
-	player.queue = append(player.queue, pack)
-	if oldLen := len(player.queue); player.queueLimit > 0 && oldLen > player.queueLimit {
-		player.queue = player.queue[1:]
-		if player.debugLogEnable {
-			len := len(player.queue)
-			logger.Printf("Player %s, QueueRTP, exceeds limit(%d), drop %d old packets, current queue.len=%d\n", player.String(), player.queueLimit, oldLen - len, len)
-		}
-	}
-	player.cond.Signal()
-	player.cond.L.Unlock()
 	return player
 }
 
-func (player *Player) Start() {
-	logger := player.logger
+func (player *_Player) ID() string {
+	return player.Session.ID
+}
+
+func (player *_Player) Path() string {
+	return player.Session.URL
+}
+
+func (player *_Player) TransType() TransType {
+	return player.Session.TransType
+}
+
+func (player *_Player) InBytes() uint {
+	return player.Session.InBytes
+}
+
+func (player *_Player) OutBytes() uint {
+	return player.Session.OutBytes
+}
+
+func (player *_Player) StartAt() time.Time {
+	return player.Session.StartAt
+}
+
+func (player *_Player) QueueRTP(pack *RTPPack) Player {
+	if pack == nil {
+		log.Debug("player queue enter nil pack, drop it")
+		return player
+	}
+	select {
+	case player.queue <- pack:
+	default:
+		log.Infof("player[%s] queue full, drop it", player.ID())
+	}
+	return player
+}
+
+func (player *_Player) Start() {
 	timer := time.Unix(0, 0)
+	var pack *RTPPack
+	var ok bool
 	for !player.Stoped {
-		var pack *RTPPack
-		player.cond.L.Lock()
-		if len(player.queue) == 0 {
-			player.cond.Wait()
-		}
-		if len(player.queue) > 0 {
-			pack = player.queue[0]
-			player.queue = player.queue[1:]
-		}
-		queueLen := len(player.queue)
-		player.cond.L.Unlock()
-		if player.paused {
-			continue
+		pack, ok = <-player.queue
+		if !ok {
+			log.Infof("player[%s] send queue stopped, quit send loop", player.ID())
+			return
 		}
 		if pack == nil {
 			if !player.Stoped {
-				logger.Printf("player not stoped, but queue take out nil pack")
+				log.Error("Player[%s] not stoped, but queue take out nil pack", player.ID())
 			}
 			continue
 		}
-		if err := player.SendRTP(pack); err != nil {
-			logger.Println(err)
+		if err := player.Session.SendRTP(pack); err != nil {
+			log.Error(err)
 		}
 		elapsed := time.Now().Sub(timer)
-		if player.debugLogEnable && elapsed >= 30*time.Second {
-			logger.Printf("Player %s, Send a package.type:%d, queue.len=%d\n", player.String(), pack.Type, queueLen)
+		if elapsed >= 30*time.Second {
+			log.Debugf("Send a package.type:%d\n", pack.Type)
 			timer = time.Now()
 		}
 	}
+}
+
+func (player *_Player) Stop() {
+	player.Session.Stop()
 }
 
 func (player *Player) Pause(paused bool) {

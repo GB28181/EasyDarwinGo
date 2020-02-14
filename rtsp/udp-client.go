@@ -4,17 +4,15 @@ import (
 	"fmt"
 	"net"
 	"strings"
-
-	"github.com/penggy/EasyGoLib/utils"
 )
 
 type UDPClient struct {
 	*Session
 
-	APort        int
-	AConn        *net.UDPConn
-	AControlPort int
-	AControlConn *net.UDPConn
+	APort        []int
+	AConn        []*net.UDPConn
+	AControlPort []int
+	AControlConn []*net.UDPConn
 	VPort        int
 	VConn        *net.UDPConn
 	VControlPort int
@@ -23,18 +21,33 @@ type UDPClient struct {
 	Stoped bool
 }
 
+// NewUDPClient returns
+func NewUDPClient(session *Session) *UDPClient {
+	return &UDPClient{
+		Session:      session,
+		APort:        []int{-1, -1},
+		AConn:        []*net.UDPConn{nil, nil},
+		AControlPort: []int{-1, -1},
+		AControlConn: []*net.UDPConn{nil, nil},
+	}
+}
+
 func (s *UDPClient) Stop() {
 	if s.Stoped {
 		return
 	}
 	s.Stoped = true
-	if s.AConn != nil {
-		s.AConn.Close()
-		s.AConn = nil
+	for i := range s.AConn {
+		if nil != s.AConn[i] {
+			s.AConn[i].Close()
+			s.AConn[i] = nil
+		}
 	}
-	if s.AControlConn != nil {
-		s.AControlConn.Close()
-		s.AControlConn = nil
+	for i := range s.AControlConn {
+		if s.AControlConn[i] != nil {
+			s.AControlConn[i].Close()
+			s.AControlConn[i] = nil
+		}
 	}
 	if s.VConn != nil {
 		s.VConn.Close()
@@ -46,54 +59,52 @@ func (s *UDPClient) Stop() {
 	}
 }
 
-func (c *UDPClient) SetupAudio() (err error) {
-	logger := c.logger
+func (c *UDPClient) SetupAudio(aChannel int) (err error) {
 	defer func() {
 		if err != nil {
-			logger.Println(err)
+			log.Error(err)
 			c.Stop()
 		}
 	}()
 	host := c.Conn.RemoteAddr().String()
 	host = host[:strings.LastIndex(host, ":")]
-	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.APort))
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.APort[aChannel]))
 	if err != nil {
 		return
 	}
-	c.AConn, err = net.DialUDP("udp", nil, addr)
+	c.AConn[aChannel], err = net.DialUDP("udp", nil, addr)
 	if err != nil {
 		return
 	}
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
-	if err := c.AConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio conn set read buffer error, %v", err)
+	networkBuffer := config.RTSP.NetworkBuffer
+	if err := c.AConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
+		log.Errorf("udp client audio conn set read buffer error, %v", err)
 	}
-	if err := c.AConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio conn set write buffer error, %v", err)
+	if err := c.AConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
+		log.Errorf("udp client audio conn set write buffer error, %v", err)
 	}
 
-	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.AControlPort))
+	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.AControlPort[aChannel]))
 	if err != nil {
 		return
 	}
-	c.AControlConn, err = net.DialUDP("udp", nil, addr)
+	c.AControlConn[aChannel], err = net.DialUDP("udp", nil, addr)
 	if err != nil {
 		return
 	}
-	if err := c.AControlConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio control conn set read buffer error, %v", err)
+	if err := c.AControlConn[aChannel].SetReadBuffer(networkBuffer); err != nil {
+		log.Errorf("udp client audio control conn set read buffer error, %v", err)
 	}
-	if err := c.AControlConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client audio control conn set write buffer error, %v", err)
+	if err := c.AControlConn[aChannel].SetWriteBuffer(networkBuffer); err != nil {
+		log.Errorf("udp client audio control conn set write buffer error, %v", err)
 	}
 	return
 }
 
 func (c *UDPClient) SetupVideo() (err error) {
-	logger := c.logger
 	defer func() {
 		if err != nil {
-			logger.Println(err)
+			log.Error(err)
 			c.Stop()
 		}
 	}()
@@ -107,12 +118,12 @@ func (c *UDPClient) SetupVideo() (err error) {
 	if err != nil {
 		return
 	}
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
+	networkBuffer := config.RTSP.NetworkBuffer
 	if err := c.VConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video conn set read buffer error, %v", err)
+		log.Errorf("udp client video conn set read buffer error, %v", err)
 	}
 	if err := c.VConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video conn set write buffer error, %v", err)
+		log.Errorf("udp client video conn set write buffer error, %v", err)
 	}
 
 	addr, err = net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", host, c.VControlPort))
@@ -124,10 +135,10 @@ func (c *UDPClient) SetupVideo() (err error) {
 		return
 	}
 	if err := c.VControlConn.SetReadBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video control conn set read buffer error, %v", err)
+		log.Errorf("udp client video control conn set read buffer error, %v", err)
 	}
 	if err := c.VControlConn.SetWriteBuffer(networkBuffer); err != nil {
-		logger.Printf("udp client video control conn set write buffer error, %v", err)
+		log.Errorf("udp client video control conn set write buffer error, %v", err)
 	}
 	return
 }
@@ -140,9 +151,9 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 	var conn *net.UDPConn
 	switch pack.Type {
 	case RTP_TYPE_AUDIO:
-		conn = c.AConn
+		conn = c.AConn[pack.Channel]
 	case RTP_TYPE_AUDIOCONTROL:
-		conn = c.AControlConn
+		conn = c.AControlConn[pack.Channel]
 	case RTP_TYPE_VIDEO:
 		conn = c.VConn
 	case RTP_TYPE_VIDEOCONTROL:
@@ -152,8 +163,10 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 		return
 	}
 	if conn == nil {
-		err = fmt.Errorf("udp client send rtp pack type[%v] failed, conn not found", pack.Type)
-		return
+		// It could be client not setting up all media channel
+		// For efficient , not format error
+		// err = fmt.Errorf("udp client send rtp pack type[%v] failed, conn not found", pack.Type)
+		return nil
 	}
 	n, err := conn.Write(pack.Buffer.Bytes())
 	if err != nil {
@@ -161,6 +174,6 @@ func (c *UDPClient) SendRTP(pack *RTPPack) (err error) {
 		return
 	}
 	// logger.Printf("udp client write [%d/%d]", n, pack.Buffer.Len())
-	c.Session.OutBytes += n
+	c.Session.OutBytes += uint(n)
 	return
 }

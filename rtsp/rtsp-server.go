@@ -2,168 +2,140 @@ package rtsp
 
 import (
 	"fmt"
-	"log"
 	"net"
-	"os"
-	"os/exec"
-	"path"
-	"strconv"
-	"strings"
 	"sync"
-	"syscall"
-	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/tls"
-	"github.com/penggy/EasyGoLib/utils"
+	"github.com/benbjohnson/immutable"
 )
 
+// OnGetPusherHandle calls when server was called GetPusher(path)
+type OnGetPusherHandle func(_ *Server, _ *Session, path string, _ Pusher) Pusher
+
+// Server of RTSP
 type Server struct {
-	SessionLogger
 	Listener       net.Listener
 	TCPPort        int
 	Stoped         bool
-	pushers        map[string]*Pusher // Path <-> Pusher
-	pushersLock    sync.RWMutex
-	addPusherCh    chan *Pusher
-	removePusherCh chan *Pusher
-	streamSecret   string
+	players        map[string]Player
+	playersLock    sync.RWMutex
+	addPusherCh    chan Pusher
+	removePusherCh chan Pusher
+	// Hooks
+	onGetPusherHandles []OnGetPusherHandle
+	// Pushers
+	pushers              *immutable.Map
+	getPushers           chan *immutable.Map
+	pusherCommandChannel chan func()
 }
 
-var Instance *Server = &Server{
-	SessionLogger:  SessionLogger{log.New(os.Stdout, "[RTSPServer]", log.LstdFlags|log.Lshortfile)},
-	Stoped:         true,
-	TCPPort:        utils.Conf().Section("rtsp").Key("port").MustInt(554),
-	pushers:        make(map[string]*Pusher),
-	addPusherCh:    make(chan *Pusher),
-	removePusherCh: make(chan *Pusher),
+// Instance of RTSP server
+var Instance *Server
+
+func initServer() error {
+	Instance = &Server{
+		Stoped:         true,
+		TCPPort:        config.RTSP.Port,
+		addPusherCh:    make(chan Pusher),
+		removePusherCh: make(chan Pusher),
+		// pushers will init when start to make sure a clean start
+	}
+
+	return nil
 }
 
+// GetServer of RTSP
 func GetServer() *Server {
 	return Instance
 }
 
-func (server *Server) Start(cert, key, streamSecret string) (err error) {
-	logger := server.logger
+func (server *Server) pusherHooks() {
+	for {
+		select {
+		case _, ok := <-server.addPusherCh:
+			if !ok {
+				return
+			}
+		case _, ok := <-server.removePusherCh:
+			if !ok {
+				return
+			}
+		}
+	}
+}
+
+func (server *Server) pusherLoop() {
+
+	for {
+		select {
+		case do, ok := <-server.pusherCommandChannel:
+			if ok {
+				do()
+
+			CleanCacheLoop:
+				for {
+					select {
+					case _ = <-server.getPushers:
+					default:
+						break CleanCacheLoop
+					}
+				}
+			} else {
+				return
+			}
+		case server.getPushers <- server.pushers:
+		}
+	}
+}
+
+func (server *Server) initPushers() {
+	server.pushers = immutable.NewMap(nil)
+	server.getPushers = make(chan *immutable.Map, 16)
+	server.pusherCommandChannel = make(chan func(), 16)
+
+	go server.pusherLoop()
+}
+
+func (server *Server) _finishPushers() {
+	// TODO: stop all pushers
+	close(server.pusherCommandChannel)
+	server.pushers = immutable.NewMap(nil)
+}
+
+func (server *Server) finishPushers() {
+	server.pusherCommandChannel <- server._finishPushers
+}
+
+func (server *Server) Start() (err error) {
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", server.TCPPort))
 	if err != nil {
 		return
 	}
-	listener, err := tls.NewTlsListener(cert, key, addr)
+	listener, err := net.ListenTCP("tcp", addr)
 	if err != nil {
 		return
 	}
-	server.streamSecret = streamSecret
-	localRecord := utils.Conf().Section("rtsp").Key("save_stream_to_local").MustInt(0)
-	ffmpeg := utils.Conf().Section("rtsp").Key("ffmpeg_path").MustString("")
-	m3u8_dir_path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")
-	ts_duration_second := utils.Conf().Section("rtsp").Key("ts_duration_second").MustInt(6)
-	SaveStreamToLocal := false
-	if (len(ffmpeg) > 0) && localRecord > 0 && len(m3u8_dir_path) > 0 {
-		err := utils.EnsureDir(m3u8_dir_path)
-		if err != nil {
-			logger.Printf("Create m3u8_dir_path[%s] err:%v.", m3u8_dir_path, err)
-		} else {
-			SaveStreamToLocal = true
-		}
-	}
-	go func() { // save to local.
-		pusher2ffmpegMap := make(map[*Pusher]*exec.Cmd)
-		if SaveStreamToLocal {
-			logger.Printf("Prepare to save stream to local....")
-			defer logger.Printf("End save stream to local....")
-		}
-		var pusher *Pusher
-		addChnOk := true
-		removeChnOk := true
-		for addChnOk || removeChnOk {
-			select {
-			case pusher, addChnOk = <-server.addPusherCh:
-				if SaveStreamToLocal {
-					if addChnOk {
-						dir := path.Join(m3u8_dir_path, pusher.Path(), time.Now().Format("20060102"))
-						err := utils.EnsureDir(dir)
-						if err != nil {
-							logger.Printf("EnsureDir:[%s] err:%v.", dir, err)
-							continue
-						}
-						m3u8path := path.Join(dir, fmt.Sprintf("out.m3u8"))
-						port := pusher.Server().TCPPort
-						rtsp := fmt.Sprintf("rtsp://localhost:%d%s", port, pusher.Path())
-						paramStr := utils.Conf().Section("rtsp").Key(pusher.Path()).MustString("-c:v copy -c:a aac")
-						params := []string{"-fflags", "genpts", "-rtsp_transport", "tcp", "-i", rtsp, "-hls_time", strconv.Itoa(ts_duration_second), "-hls_list_size", "0", m3u8path}
-						if paramStr != "default" {
-							paramsOfThisPath := strings.Split(paramStr, " ")
-							params = append(params[:6], append(paramsOfThisPath, params[6:]...)...)
-						}
-						// ffmpeg -i ~/Downloads/720p.mp4 -s 640x360 -g 15 -c:a aac -hls_time 5 -hls_list_size 0 record.m3u8
-						cmd := exec.Command(ffmpeg, params...)
-						f, err := os.OpenFile(path.Join(dir, fmt.Sprintf("log.txt")), os.O_RDWR|os.O_CREATE, 0755)
-						if err == nil {
-							cmd.Stdout = f
-							cmd.Stderr = f
-						}
-						err = cmd.Start()
-						if err != nil {
-							logger.Printf("Start ffmpeg err:%v", err)
-						}
-						pusher2ffmpegMap[pusher] = cmd
-						logger.Printf("add ffmpeg [%v] to pull stream from pusher[%v]", cmd, pusher)
-					} else {
-						logger.Printf("addPusherChan closed")
-					}
-				}
-			case pusher, removeChnOk = <-server.removePusherCh:
-				if SaveStreamToLocal {
-					if removeChnOk {
-						cmd := pusher2ffmpegMap[pusher]
-						proc := cmd.Process
-						if proc != nil {
-							logger.Printf("prepare to SIGTERM to process:%v", proc)
-							proc.Signal(syscall.SIGTERM)
-							proc.Wait()
-							// proc.Kill()
-							// no need to close attached log file.
-							// see "Wait releases any resources associated with the Cmd."
-							// if closer, ok := cmd.Stdout.(io.Closer); ok {
-							// 	closer.Close()
-							// 	logger.Printf("process:%v Stdout closed.", proc)
-							// }
-							logger.Printf("process:%v terminate.", proc)
-						}
-						delete(pusher2ffmpegMap, pusher)
-						logger.Printf("delete ffmpeg from pull stream from pusher[%v]", pusher)
-					} else {
-						for _, cmd := range pusher2ffmpegMap {
-							proc := cmd.Process
-							if proc != nil {
-								logger.Printf("prepare to SIGTERM to process:%v", proc)
-								proc.Signal(syscall.SIGTERM)
-							}
-						}
-						pusher2ffmpegMap = make(map[*Pusher]*exec.Cmd)
-						logger.Printf("removePusherChan closed")
-					}
-				}
-			}
-		}
-	}()
+
+	go server.pusherHooks()
+	server.initPushers()
 
 	server.Stoped = false
 	server.Listener = listener
-	logger.Println("rtsp server start on", server.TCPPort)
-	networkBuffer := utils.Conf().Section("rtsp").Key("network_buffer").MustInt(1048576)
+	log.Infof("RTSP server start on[%d]", server.TCPPort)
+	networkBuffer := config.RTSP.NetworkBuffer
 	for !server.Stoped {
 		conn, err := server.Listener.Accept()
 		if err != nil {
-			logger.Println(err)
+			if !server.Stoped {
+				log.Errorf("RTSP server listen fail:[%v]", err)
+			}
 			continue
 		}
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
 			if err := tcpConn.SetReadBuffer(networkBuffer); err != nil {
-				logger.Printf("rtsp server conn set read buffer error, %v", err)
+				log.Errorf("RTSP server conn set read buffer error, %v", err)
 			}
 			if err := tcpConn.SetWriteBuffer(networkBuffer); err != nil {
-				logger.Printf("rtsp server conn set write buffer error, %v", err)
+				log.Errorf("RTSP server conn set write buffer error, %v", err)
 			}
 		}
 
@@ -173,41 +145,48 @@ func (server *Server) Start(cert, key, streamSecret string) (err error) {
 	return
 }
 
+// Stop RTSP server
 func (server *Server) Stop() {
-	logger := server.logger
-	logger.Println("rtsp server stop on", server.TCPPort)
+	log.Infof("rtsp server stop on %d", server.TCPPort)
 	server.Stoped = true
 	if server.Listener != nil {
 		server.Listener.Close()
 		server.Listener = nil
 	}
-	server.pushersLock.Lock()
-	server.pushers = make(map[string]*Pusher)
-	server.pushersLock.Unlock()
+	server.finishPushers()
 
 	close(server.addPusherCh)
 	close(server.removePusherCh)
 }
 
-func (server *Server) AddPusher(pusher *Pusher) bool {
-	logger := server.logger
-	added := false
-	server.pushersLock.Lock()
-	_, ok := server.pushers[pusher.Path()]
-	if !ok {
-		server.pushers[pusher.Path()] = pusher
-		logger.Printf("%v start, now pusher size[%d]", pusher, len(server.pushers))
-		added = true
-	} else {
-		added = false
-	}
-	server.pushersLock.Unlock()
-	if added {
-		go pusher.Start()
-		server.addPusherCh <- pusher
-	}
-	return added
+type serverAddPusherCommand struct {
+	server   *Server
+	pusher   Pusher
+	closeOld bool
+	result   chan bool
 }
+
+func (c *serverAddPusherCommand) Do() {
+	added := false
+
+	_old, existOld := c.server.pushers.Get(c.pusher.Path())
+	oldPusher, _ := _old.(Pusher)
+
+	if !existOld || c.closeOld {
+		c.server.pushers = c.server.pushers.Set(c.pusher.Path(), c.pusher)
+		added = true
+		log.Infof("pusher %s added, now pusher size[%d]", c.pusher.ID(), c.server.pushers.Len())
+	}
+
+	if existOld && c.closeOld {
+		go oldPusher.Stop()
+	}
+
+	if added {
+		go c.pusher.Start()
+	}
+
+	c.result <- added
 
 func (server *Server) TryAttachToPusher(session *Session) (int, *Pusher) {
 	server.pushersLock.Lock()
@@ -226,41 +205,78 @@ func (server *Server) TryAttachToPusher(session *Session) (int, *Pusher) {
 	return attached, pusher
 }
 
-func (server *Server) RemovePusher(pusher *Pusher) {
-	logger := server.logger
-	removed := false
-	server.pushersLock.Lock()
-	if _pusher, ok := server.pushers[pusher.Path()]; ok && pusher.ID() == _pusher.ID() {
-		delete(server.pushers, pusher.Path())
-		logger.Printf("%v end, now pusher size[%d]\n", pusher, len(server.pushers))
-		removed = true
+// AddPusher to Server
+func (server *Server) AddPusher(pusher Pusher, closeOld bool) bool {
+	cmd := &serverAddPusherCommand{
+		server:   server,
+		pusher:   pusher,
+		closeOld: closeOld,
+		result:   make(chan bool, 1),
 	}
-	server.pushersLock.Unlock()
-	if removed {
-		server.removePusherCh <- pusher
-	}
+
+	server.pusherCommandChannel <- cmd.Do
+
+	return <-cmd.result
 }
 
-func (server *Server) GetPusher(path string) (pusher *Pusher) {
-	server.pushersLock.RLock()
-	pusher = server.pushers[path]
-	server.pushersLock.RUnlock()
+type serverRemovePusherCommmand struct {
+	server *Server
+	ID     string
+	result chan int
+}
+
+func (c *serverRemovePusherCommmand) Do() {
+	_pusher, exist := c.server.pushers.Get(c.ID)
+	if exist {
+		c.server.pushers = c.server.pushers.Delete(c.ID)
+		log.Infof("pusher [%s] removed, now pusher size[%d]\n", c.ID, c.server.pushers.Len())
+
+		go _pusher.(Pusher).Stop()
+	}
+
+	c.result <- 1
+}
+
+// RemovePusher from RTSP server
+func (server *Server) RemovePusher(ID string) {
+	cmd := &serverRemovePusherCommmand{
+		server: server,
+		ID:     ID,
+		result: make(chan int, 1),
+	}
+
+	server.pusherCommandChannel <- cmd.Do
+
+	<-cmd.result
+}
+
+// AddOnGetPusherHandle to RTSP server
+func (server *Server) AddOnGetPusherHandle(handle OnGetPusherHandle) {
+	// TODO: handle state change func like windows message
+	server.onGetPusherHandles = append(server.onGetPusherHandles, handle)
+}
+
+// GetPusher according to path of request
+// pass session for dynamic create pusher lifecycle or other necessary reseaons
+func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
+	_pusher, ok := server.GetPushers().Get(path)
+	if ok {
+		pusher = _pusher.(Pusher)
+	}
+
+	for _, handle := range server.onGetPusherHandles {
+		pusher = handle(server, session, path, pusher)
+	}
+
 	return
 }
 
-func (server *Server) GetPushers() (pushers map[string]*Pusher) {
-	pushers = make(map[string]*Pusher)
-	server.pushersLock.RLock()
-	for k, v := range server.pushers {
-		pushers[k] = v
-	}
-	server.pushersLock.RUnlock()
-	return
+// GetPushers from RTSP server
+func (server *Server) GetPushers() *immutable.Map {
+	return <-server.getPushers
 }
 
-func (server *Server) GetPusherSize() (size int) {
-	server.pushersLock.RLock()
-	size = len(server.pushers)
-	server.pushersLock.RUnlock()
-	return
+// GetPusherSize from RTSP server
+func (server *Server) GetPusherSize() int {
+	return server.GetPushers().Len()
 }

@@ -2,18 +2,15 @@ package routers
 
 import (
 	"fmt"
-	"log"
+
 	"net/http"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
+	"github.com/EasyDarwin/EasyDarwin/utils"
 	"github.com/gin-gonic/gin"
-	"github.com/penggy/EasyGoLib/db"
-	"github.com/penggy/EasyGoLib/utils"
-	"github.com/penggy/sessions"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/mem"
 )
@@ -52,8 +49,11 @@ func init() {
 				cpuData = append(cpuData, PercentData{Time: now, Used: cpu[0] / 100})
 				pusherData = append(pusherData, CountData{Time: now, Total: uint(rtsp.Instance.GetPusherSize())})
 				playerCnt := 0
-				for _, pusher := range rtsp.Instance.GetPushers() {
-					playerCnt += len(pusher.GetPlayers())
+				for it := rtsp.Instance.GetPushers().Iterator(); !it.Done(); {
+					_, _pusher := it.Next()
+					pusher := _pusher.(rtsp.Pusher)
+
+					playerCnt += pusher.GetPlayers().Len()
 				}
 				playerData = append(playerData, CountData{Time: now, Total: uint(playerCnt)})
 
@@ -72,30 +72,6 @@ func init() {
 			}
 		}
 	}()
-}
-
-func (h *APIHandler) ModifyPassword(c *gin.Context) {
-	type Form struct {
-		OldPassword string `form:"oldpassword" binding:"required"`
-		NewPassword string `form:"newpassword" binding:"required"`
-	}
-	var form Form
-	if err := c.Bind(&form); err != nil {
-		return
-	}
-	sess := sessions.Default(c)
-	var user models.User
-	db.SQLite.First(&user, sess.Get("uid"))
-	if user.ID != "" && strings.EqualFold(form.OldPassword, user.Password) {
-		db.SQLite.Model(&user).Update("password", form.NewPassword)
-	} else {
-		c.AbortWithStatusJSON(http.StatusBadRequest, "原密码不正确")
-		return
-	}
-	token, _ := sess.RenewID()
-	c.IndentedJSON(http.StatusOK, gin.H{
-		"token": token,
-	})
 }
 
 /**
@@ -136,94 +112,4 @@ func (h *APIHandler) Restart(c *gin.Context) {
 		default:
 		}
 	}()
-}
-
-/**
- * @apiDefine userInfo
- * @apiSuccess (200) {String} id
- * @apiSuccess (200) {String} name 用户名
- * @apiSuccess (200) {String[]} [roles] 角色列表
- */
-
-/**
- * @api {get} /api/v1/login 登录
- * @apiGroup sys
- * @apiName Login
- * @apiParam {String} username 用户名
- * @apiParam {String} password 密码(经过md5加密,32位长度,不带中划线,不区分大小写)
- * @apiSuccessExample 成功
- * HTTP/1.1 200 OK
- * Set-Cookie: token=s%3ArkyMbQE0M.5AKAOXbW8c7iP%2BOo0venPkCYiEiPK9FY31mB6AlFQak;//用着后续接口调用的 token
- */
-func (h *APIHandler) Login(c *gin.Context) {
-	type Form struct {
-		Username string `form:"username" binding:"required"`
-		Password string `form:"password" binding:"required"`
-	}
-	var form Form
-	if err := c.Bind(&form); err != nil {
-		return
-	}
-	var user models.User
-	db.SQLite.Where(&models.User{Username: form.Username}).First(&user)
-	if user.ID == "" {
-		c.AbortWithStatusJSON(401, "用户名或密码错误")
-		return
-	}
-	if !strings.EqualFold(user.Password, form.Password) {
-		c.AbortWithStatusJSON(401, "用户名或密码错误")
-		return
-	}
-	sess := sessions.Default(c)
-	sess.Set("uid", user.ID)
-	sess.Set("uname", user.Username)
-	c.IndentedJSON(200, gin.H{
-		"token": sessions.Default(c).ID(),
-	})
-}
-
-/**
- * @api {get} /api/v1/userInfo 获取当前登录用户信息
- * @apiGroup sys
- * @apiName UserInfo
- * @apiUse userInfo
- */
-func (h *APIHandler) UserInfo(c *gin.Context) {
-	sess := sessions.Default(c)
-	uid := sess.Get("uid")
-	if uid != nil {
-		c.IndentedJSON(200, gin.H{
-			"id":   uid,
-			"name": sess.Get("uname"),
-		})
-	} else {
-		c.IndentedJSON(200, nil)
-	}
-}
-
-/**
- * @api {get} /api/v1/logout 登出
- * @apiGroup sys
- * @apiName Logout
- * @apiUse simpleSuccess
- */
-func (h *APIHandler) Logout(c *gin.Context) {
-	sess := sessions.Default(c)
-	sess.Destroy()
-	c.IndentedJSON(200, "OK")
-}
-
-func (h *APIHandler) DefaultLoginInfo(c *gin.Context) {
-	var user models.User
-	sec := utils.Conf().Section("http")
-	defUser := sec.Key("default_username").MustString("admin")
-	defPass := sec.Key("default_password").MustString("admin")
-	db.SQLite.First(&user, "username = ?", defUser)
-	if utils.MD5(defPass) != user.Password {
-		defPass = ""
-	}
-	c.JSON(200, gin.H{
-		"username": defUser,
-		"password": defPass,
-	})
 }

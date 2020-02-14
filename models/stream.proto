@@ -1,0 +1,10 @@
+syntax = "proto3";
+package models;
+
+message Stream {
+  string ID = 1;
+  string URL = 2;
+  string CustomPath = 3;
+  int64 IdleTimeout = 4;
+	int64 HeartbeatInterval = 5;
+}

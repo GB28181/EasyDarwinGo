@@ -6,15 +6,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/EasyDarwin/EasyDarwin/models"
 	"github.com/EasyDarwin/EasyDarwin/routers"
 	"github.com/EasyDarwin/EasyDarwin/rtsp"
-	"github.com/common-nighthawk/go-figure"
-	"github.com/penggy/EasyGoLib/db"
-	"github.com/penggy/EasyGoLib/utils"
+	"github.com/EasyDarwin/EasyDarwin/utils"
+	figure "github.com/common-nighthawk/go-figure"
 	"github.com/penggy/service"
 )
 
@@ -103,10 +103,7 @@ func (p *program) Start(s service.Service) (err error) {
 		err = fmt.Errorf("RTSP port[%d] In Use", p.rtspPort)
 		return
 	}
-	err = models.Init()
-	if err != nil {
-		return
-	}
+	// Init API server
 	err = routers.Init()
 	if err != nil {
 		return
@@ -114,45 +111,46 @@ func (p *program) Start(s service.Service) (err error) {
 	p.StartRTSP()
 	p.StartHTTP()
 
-	if !utils.Debug {
-		log.Println("log files -->", utils.LogDir())
-		log.SetOutput(utils.GetLogWriter())
-	}
+	// TODO: log sestup
 	go func() {
 		for range routers.API.RestartChan {
 			p.StopHTTP()
 			p.StopRTSP()
-			utils.ReloadConf()
+			// utils.ReloadConf()
+			// TODO : reload config and init
 			p.StartRTSP()
 			p.StartHTTP()
 		}
 	}()
 
+	// Restart pushers
 	go func() {
 		log.Printf("demon pull streams")
 		for {
-			var streams []models.Stream
-			db.SQLite.Find(&streams)
-			if err := db.SQLite.Find(&streams).Error; err != nil {
+			var streams []*models.Stream
+			streams, err := models.GetAllStream()
+			if err != nil {
 				log.Printf("find stream err:%v", err)
-				return
+				time.Sleep(10 * time.Second)
+				continue
 			}
-			for i := len(streams) - 1; i > -1; i-- {
-				v := streams[i]
+			for _, v := range streams {
+				if nil != rtsp.Instance.GetPusher(v.CustomPath, nil) {
+					continue
+				}
+
 				agent := fmt.Sprintf("EasyDarwinGo/%s", routers.BuildVersion)
 				if routers.BuildDateTime != "" {
 					agent = fmt.Sprintf("%s(%s)", agent, routers.BuildDateTime)
 				}
-				client, err := rtsp.NewRTSPClient(rtsp.GetServer(), v.URL, int64(v.HeartbeatInterval)*1000, agent)
+				client, err := rtsp.NewRTSPClient(
+					rtsp.GetServer(), v.ID, v.URL, int64(v.HeartbeatInterval)*1000, agent)
 				if err != nil {
 					continue
 				}
 				client.CustomPath = v.CustomPath
 
 				pusher := rtsp.NewClientPusher(client)
-				if rtsp.GetServer().GetPusher(pusher.Path()) != nil {
-					continue
-				}
 				err = client.Start(time.Duration(v.IdleTimeout) * time.Second)
 				if err != nil {
 					log.Printf("Pull stream err :%v", err)
@@ -165,24 +163,56 @@ func (p *program) Start(s service.Service) (err error) {
 			time.Sleep(10 * time.Second)
 		}
 	}()
+
+	// Restart record
+	go func() {
+		log.Printf("demon pull recorders")
+		for {
+			tasks := models.GetAllTasks()
+			for _, task := range tasks {
+				log.Print(task.String())
+				// TODO: More safe pusher.AddPlayer
+				pusher := rtsp.Instance.GetPusher(task.PlayPath, nil)
+				if nil == pusher {
+					continue
+				}
+				if nil != pusher.GetPlayer(task.ID) {
+					continue
+				}
+				log.Printf("Task[%s] off, restarting", task.ID)
+				recorder, err := rtsp.NewRecorder(task, pusher)
+				if nil != err {
+					log.Printf("NewRecorder error[%v]", err)
+					continue
+				}
+				if err = pusher.AddPlayer(recorder); nil != err {
+					log.Printf("Addplayer error[%v]", err)
+					continue
+				}
+			}
+			time.Sleep(10 * time.Second)
+		}
+	}()
 	return
 }
 
 func (p *program) Stop(s service.Service) (err error) {
 	defer log.Println("********** STOP **********")
-	defer utils.CloseLogWriter()
+	// defer utils.CloseLogWriter()
+	// TODO: stop log
 	p.StopHTTP()
 	p.StopRTSP()
-	models.Close()
 	return
 }
 
 func main() {
-	flag.StringVar(&utils.FlagVarConfFile, "config", "", "configure file path")
+	// TODO: input config filepathf
+	// flag.StringVar(&utils.FlagVarConfFile, "config", "", "configure file path")
 	flag.Parse()
 	tail := flag.Args()
 
 	// log
+	log.SetOutput(os.Stdout)
 	log.SetPrefix("[EasyDarwin] ")
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 
@@ -191,14 +221,13 @@ func main() {
 	routers.BuildVersion = fmt.Sprintf("%s.%s", routers.BuildVersion, gitCommitCode)
 	routers.BuildDateTime = buildDateTime
 
-	sec := utils.Conf().Section("service")
 	svcConfig := &service.Config{
-		Name:        sec.Key("name").MustString("EasyDarwin_Service"),
-		DisplayName: sec.Key("display_name").MustString("EasyDarwin_Service"),
-		Description: sec.Key("description").MustString("EasyDarwin_Service"),
+		Name:        config.Service.Name,
+		DisplayName: config.Service.DisplayName,
+		Description: config.Service.Description,
 	}
 
-	httpPort := utils.Conf().Section("http").Key("port").MustInt(10008)
+	httpPort := config.HTTP.Port
 	cert := utils.Conf().Section("tls").Key("cert").MustString("")
 	key := utils.Conf().Section("tls").Key("key").MustString("")
 	streamSecret := utils.Conf().Section("rtsp").Key("stream_secret_key").MustString("")

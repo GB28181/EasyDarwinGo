@@ -2,7 +2,6 @@ package rtsp
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
 	"strings"

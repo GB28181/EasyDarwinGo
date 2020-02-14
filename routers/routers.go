@@ -2,17 +2,12 @@ package routers
 
 import (
 	"fmt"
-	"log"
 	"mime"
 	"net/http"
-	"path/filepath"
-
-	"github.com/penggy/EasyGoLib/db"
 
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/penggy/EasyGoLib/utils"
 	"github.com/penggy/cors"
 	"github.com/penggy/sessions"
 	validator "gopkg.in/go-playground/validator.v8"
@@ -64,7 +59,6 @@ func init() {
 
 	gin.DisableConsoleColor()
 	gin.SetMode(gin.ReleaseMode)
-	gin.DefaultWriter = utils.GetLogWriter()
 }
 
 func Errors() gin.HandlerFunc {
@@ -77,10 +71,8 @@ func Errors() gin.HandlerFunc {
 				case validator.ValidationErrors:
 					errs := err.Err.(validator.ValidationErrors)
 					for _, err := range errs {
-						sec := utils.Conf().Section("localize")
-						field := sec.Key(err.Field).MustString(err.Field)
-						tag := sec.Key(err.Tag).MustString(err.Tag)
-						c.AbortWithStatusJSON(http.StatusBadRequest, fmt.Sprintf("%s %s", field, tag))
+						c.AbortWithStatusJSON(http.StatusBadRequest,
+							fmt.Sprintf("%s %s", err.Field, err.Tag))
 						return
 					}
 				default:
@@ -103,6 +95,7 @@ func NeedLogin() gin.HandlerFunc {
 	}
 }
 
+// Init API of RTSP server
 func Init() (err error) {
 	Router = gin.New()
 	pprof.Register(Router)
@@ -111,25 +104,10 @@ func Init() (err error) {
 	Router.Use(Errors())
 	Router.Use(cors.Default())
 
-	store := sessions.NewGormStoreWithOptions(db.SQLite, sessions.GormStoreOptions{
-		TableName: "t_sessions",
-	}, []byte("EasyDarwin@2018"))
-	tokenTimeout := utils.Conf().Section("http").Key("token_timeout").MustInt(7 * 86400)
-	store.Options(sessions.Options{HttpOnly: true, MaxAge: tokenTimeout, Path: "/"})
-	sessionHandle := sessions.Sessions("token", store)
+	Router.Use(static.Serve("/", static.LocalFile(config.HTTP.Static, true)))
 
 	{
-		wwwDir := filepath.Join(utils.DataDir(), "www")
-		Router.Use(static.Serve("/", static.LocalFile(wwwDir, true)))
-	}
-
-	{
-		api := Router.Group("/api/v1").Use(sessionHandle)
-		api.GET("/login", API.Login)
-		api.GET("/userinfo", API.UserInfo)
-		api.GET("/logout", API.Logout)
-		api.GET("/defaultlogininfo", API.DefaultLoginInfo)
-		api.GET("/modifypassword", NeedLogin(), API.ModifyPassword)
+		api := Router.Group("/api/v1")
 		api.GET("/serverinfo", API.GetServerInfo)
 		api.GET("/restart", API.Restart)
 
@@ -139,17 +117,8 @@ func Init() (err error) {
 		api.GET("/stream/start", API.StreamStart)
 		api.GET("/stream/stop", API.StreamStop)
 
-		api.GET("/record/folders", API.RecordFolders)
-		api.GET("/record/files", API.RecordFiles)
-	}
-
-	{
-
-		mp4Path := utils.Conf().Section("rtsp").Key("m3u8_dir_path").MustString("")
-		if len(mp4Path) != 0 {
-			Router.Use(static.Serve("/record", static.LocalFile(mp4Path, true)))
-		}
-
+		api.GET("/record/start", API.StartRecord)
+		api.GET("/record", API.QueryRecord)
 	}
 
 	return
