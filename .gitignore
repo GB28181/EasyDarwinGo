@@ -1,6 +1,8 @@
 # Binaries for programs and plugins
 *.exe
 *.exe~
+/test
+log/
 *.dll
 *.so
 *.dylib
@@ -14,3 +16,5 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 *.orig
+.hg
+.hgignore

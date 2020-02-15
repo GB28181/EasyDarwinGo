@@ -338,6 +338,53 @@ func (session *Session) Start() {
 	}
 }
 
+func CheckAuth(authLine string, method string, sessionNonce string) error {
+	realmRex := regexp.MustCompile(`realm="(.*?)"`)
+	nonceRex := regexp.MustCompile(`nonce="(.*?)"`)
+	usernameRex := regexp.MustCompile(`username="(.*?)"`)
+	responseRex := regexp.MustCompile(`response="(.*?)"`)
+	uriRex := regexp.MustCompile(`uri="(.*?)"`)
+
+	realm := ""
+	nonce := ""
+	username := ""
+	response := ""
+	uri := ""
+	result1 := realmRex.FindStringSubmatch(authLine)
+	if len(result1) == 2 {
+		realm = result1[1]
+	} else {
+		return fmt.Errorf("CheckAuth error : no realm found")
+	}
+	result1 = nonceRex.FindStringSubmatch(authLine)
+	if len(result1) == 2 {
+		nonce = result1[1]
+	} else {
+		return fmt.Errorf("CheckAuth error : no nonce found")
+	}
+	if sessionNonce != nonce {
+		return fmt.Errorf("CheckAuth error : sessionNonce not same as nonce")
+	}
+	result1 = uriRex.FindStringSubmatch(authLine)
+	if len(result1) == 2 {
+		uri = result1[1]
+	} else {
+		return fmt.Errorf("CheckAuth error : uri not found")
+	}
+	var user models.User
+	err := db.SQLite.Where("Username = ?", username).First(&user).Error
+	if err != nil {
+		return fmt.Errorf("CheckAuth error : user not exists")
+	}
+	md5UserRealmPwd := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", username, realm, user.Password))))
+	md5MethodURL := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s", method, uri))))
+	myResponse := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", md5UserRealmPwd, nonce, md5MethodURL))))
+	if myResponse != response {
+		return fmt.Errorf("CheckAuth error : response not equal")
+	}
+	return nil
+}
+
 func validate(key []byte, salt []byte, request string) string {
 	mac := hmac.New(sha512.New, key)
 	mac.Write(salt)
@@ -366,7 +413,6 @@ func (session *Session) authenticate(req *Request) int {
 	if time.Now().After(expTime) {
 		fmt.Printf("signature has expired")
 		return 403
-	}
 	buf := bytes.NewBufferString("TV")
 	streamHex, _ := hex.DecodeString(session.streamSecret)
 	buf.Write(streamHex)

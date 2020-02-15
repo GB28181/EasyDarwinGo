@@ -14,6 +14,7 @@ type OnGetPusherHandle func(_ *Server, _ *Session, path string, _ Pusher) Pusher
 // Server of RTSP
 type Server struct {
 	Listener       net.Listener
+	TCPListener    *net.TCPListener
 	TCPPort        int
 	Stoped         bool
 	players        map[string]Player
@@ -237,6 +238,45 @@ func (c *serverRemovePusherCommmand) Do() {
 	c.result <- 1
 }
 
+type serverRemovePusherCommmand struct {
+	server *Server
+	ID     string
+	result chan int
+}
+
+func (c *serverRemovePusherCommmand) Do() {
+	_pusher, exist := c.server.pushers.Get(c.ID)
+	if exist {
+		c.server.pushers = c.server.pushers.Delete(c.ID)
+		log.Infof("pusher [%s] removed, now pusher size[%d]\n", c.ID, c.server.pushers.Len())
+
+		go _pusher.(Pusher).Stop()
+	}
+
+	c.result <- 1
+}
+
+// AddOnGetPusherHandle to RTSP server
+func (server *Server) AddOnGetPusherHandle(handle OnGetPusherHandle) {
+	// TODO: handle state change func like windows message
+	server.onGetPusherHandles = append(server.onGetPusherHandles, handle)
+}
+
+// GetPusher according to path of request
+// pass session for dynamic create pusher lifecycle or other necessary reseaons
+func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
+	_pusher, ok := server.GetPushers().Get(path)
+	if ok {
+		pusher = _pusher.(Pusher)
+	}
+
+	for _, handle := range server.onGetPusherHandles {
+		pusher = handle(server, session, path, pusher)
+	}
+
+	return
+}
+
 // RemovePusher from RTSP server
 func (server *Server) RemovePusher(ID string) {
 	cmd := &serverRemovePusherCommmand{
@@ -270,6 +310,7 @@ func (server *Server) GetPusher(path string, session *Session) (pusher Pusher) {
 
 	return
 }
+
 
 // GetPushers from RTSP server
 func (server *Server) GetPushers() *immutable.Map {

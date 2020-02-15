@@ -309,6 +309,19 @@ func (pusher *Pusher) CheckNoConnection() {
 	return pusher
 }
 
+func (pusher *_Pusher) BroadcastRTP(pack *RTPPack) *_Pusher {
+	players := pusher.GetPlayers()
+
+	for itPlayer := players.Iterator(); !itPlayer.Done(); {
+		_, _player := itPlayer.Next()
+		player := _player.(Player)
+		player.QueueRTP(pack)
+		pusher.AddOutputBytes(pack.Buffer.Len())
+	}
+
+	return pusher
+}
+
 func (pusher *Pusher) GetPlayerLen() int {
 	pusher.playersLock.RLock()
 	length := len(pusher.players)

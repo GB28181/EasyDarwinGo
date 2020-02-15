@@ -30,7 +30,7 @@
                     <el-table-column prop="transType" label="传输方式" min-width="100"></el-table-column>               
                     <!-- <el-table-column prop="inBytes" label="上行流量" min-width="120" :formatter="formatBytes" sortable="custom"></el-table-column> -->
                     <el-table-column prop="outBytes" label="下行流量" min-width="120" :formatter="formatBytes" sortable="custom"></el-table-column>
-                    <el-table-column prop="startAt" label="开始时间" min-width="200" sortable="custom"></el-table-column>
+                    <el-table-column prop="startAt" label="开始时� min-width="200" sortable="custom"></el-table-column>
                 </el-table>          
             </div>
             <div class="box-footer clearfix" v-if="total > 0">
