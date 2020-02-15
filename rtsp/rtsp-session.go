@@ -543,11 +543,11 @@ func (session *Session) handleRequest(req *Request) {
 	case "SETUP":
 		ts := req.Header["Transport"]
 		// control字段可能是`stream=1`字样，也可能是rtsp://...字样。即control可能是url的path，也可能是整个url
-		// 例1：
+		// ��
 		// a=control:streamid=1
-		// 例2：
+		// ��
 		// a=control:rtsp://192.168.1.64/trackID=1
-		// 例3：
+		// ��
 		// a=control:?ctype=video
 		setupUrl, err := url.Parse(req.URL)
 		if err != nil {

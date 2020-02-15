@@ -98,7 +98,7 @@ func (pusher *_Pusher) SDPRaw() string {
 
 func (pusher *_Pusher) Stoped() bool {
 	if pusher.Session != nil {
-		return pusher.Session.Stoped
+		return pusher.Session.getStoped()
 	}
 	return pusher.RTSPClient.Stoped
 }
@@ -252,6 +252,7 @@ func (pusher *_Pusher) QueueRTP(pack *RTPPack) {
 }
 
 func (pusher *_Pusher) Start() {
+	go pusher.CheckNoConnection()
 	for !pusher.Stoped() {
 		pack := <-pusher.queue
 		if pack == nil {
@@ -281,17 +282,38 @@ func (pusher *_Pusher) Stop() {
 	pusher.RTSPClient.Stop()
 }
 
-func (pusher *_Pusher) BroadcastRTP(pack *RTPPack) *_Pusher {
-	players := pusher.GetPlayers()
+func (pusher *Pusher) CheckNoConnection() {
+	logger := pusher.Logger()
+	checkInterval := utils.Conf().Section("rtsp").Key("check_no_connection_interval").MustInt(30)
+	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			// return if no listener
+			if pusher.GetPlayerLen() == 0 || pusher.Stoped() {
+				ticker.Stop()
+				if !pusher.Stoped() {
+					pusher.Stop()
+				}
+				logger.Println("pusher stopped: no player within timeout")
+				return
+			}
+		}
+	}
+}
 
-	for itPlayer := players.Iterator(); !itPlayer.Done(); {
-		_, _player := itPlayer.Next()
-		player := _player.(Player)
 		player.QueueRTP(pack)
 		pusher.AddOutputBytes(pack.Buffer.Len())
 	}
 
 	return pusher
+}
+
+func (pusher *Pusher) GetPlayerLen() int {
+	pusher.playersLock.RLock()
+	length := len(pusher.players)
+	pusher.playersLock.RUnlock()
+	return length
 }
 
 func (pusher *_Pusher) GetPlayers() *immutable.Map {
