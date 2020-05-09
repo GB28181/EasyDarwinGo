@@ -2,13 +2,12 @@
 
 + Go Version 
 
-Merged and Modified From 
+Merged :
+
 + [chenww05/EasyDarwin](https://github.com/chenww05/EasyDarwin)
 + [raininfall/EasyDarwin](https://github.com/raininfall/EasyDarwin)
 
-##说明
-
-相比原始仓库，有以下好处：
+## 说明
 
 + 1、升级到了go mod，基于mod编译，移除了原始的vendor方式编译
 + 2、移除了原始仓库中的cpp 和 node 版本代码分支，只留下Go版本
